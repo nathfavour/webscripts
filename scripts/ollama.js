@@ -318,6 +318,106 @@
             return new Promise((resolve, reject) => {
                 GM_xmlhttpRequest({
                     method: "POST",
+                    url: `${config.apiBaseUrl}/api/chat`,
+                    data: JSON.stringify({
+                        model: config.modelName,
+                        messages: [
+                            {
+                                role: "system",
+                                content: systemPrompt || config.systemPrompt
+                            },
+                            {
+                                role: "user",
+                                content: prompt
+                            }
+                        ],
+                        stream: true,
+                        options: {
+                            temperature: config.temperature
+                        }
+                    }),
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    responseType: "text",
+                    onreadystatechange: function(response) {
+                        if (response.readyState === 4 && response.status === 200) {
+                            try {
+                                // In case of non-streaming response
+                                const data = JSON.parse(response.responseText);
+                                if (data.message && data.message.content) {
+                                    fullResponse = data.message.content;
+                                    onUpdate(fullResponse);
+                                    resolve(fullResponse);
+                                }
+                            } catch (e) {
+                                // Expected for streaming responses
+                            }
+                        }
+                    },
+                    onprogress: function(response) {
+                        try {
+                            const lines = response.responseText.split('\n').filter(line => line.trim());
+                            let latestResponse = '';
+                            
+                            for (const line of lines) {
+                                try {
+                                    const parsedLine = JSON.parse(line);
+                                    if (parsedLine.message && parsedLine.message.content) {
+                                        latestResponse = parsedLine.message.content;
+                                        onUpdate(latestResponse);
+                                    }
+                                } catch (e) {
+                                    // Skip invalid JSON lines
+                                }
+                            }
+                            
+                            fullResponse = latestResponse;
+                        } catch (e) {
+                            console.error("Error parsing Ollama progress response:", e);
+                        }
+                    },
+                    onload: function(response) {
+                        try {
+                            // Some responses might not be streamed
+                            const text = response.responseText;
+                            const lines = text.split('\n').filter(line => line.trim());
+                            
+                            // Get the last complete JSON object
+                            for (let i = lines.length - 1; i >= 0; i--) {
+                                try {
+                                    const parsedLine = JSON.parse(lines[i]);
+                                    if (parsedLine.message && parsedLine.message.content) {
+                                        fullResponse = parsedLine.message.content;
+                                        onUpdate(fullResponse);
+                                        break;
+                                    }
+                                } catch (e) {
+                                    // Skip invalid JSON lines
+                                }
+                            }
+                            
+                            resolve(fullResponse);
+                        } catch (e) {
+                            console.error("Error parsing Ollama final response:", e);
+                            resolve(fullResponse);
+                        }
+                    },
+                    onerror: function(error) {
+                        console.error("Ollama API error:", error);
+                        reject(error);
+                    }
+                });
+            });
+        },
+        
+        // Alternative generate response using the older /api/generate endpoint
+        generateResponseLegacy: function(prompt, systemPrompt, onUpdate) {
+            let fullResponse = '';
+            
+            return new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: "POST",
                     url: `${config.apiBaseUrl}/api/generate`,
                     data: JSON.stringify({
                         model: config.modelName,
@@ -332,38 +432,34 @@
                     headers: {
                         "Content-Type": "application/json"
                     },
-                    responseType: "stream",
-                    onloadstart: function(response) {
-                        const reader = response.target.response.getReader();
-                        const decoder = new TextDecoder("utf-8");
-                        
-                        function processStream({ done, value }) {
-                            if (done) {
-                                resolve(fullResponse);
-                                return;
-                            }
+                    responseType: "text",
+                    onprogress: function(response) {
+                        try {
+                            const lines = response.responseText.split('\n').filter(line => line.trim());
+                            let latestResponse = '';
                             
-                            try {
-                                const chunk = decoder.decode(value);
-                                const lines = chunk.split('\n').filter(line => line.trim());
-                                
-                                for (const line of lines) {
+                            for (const line of lines) {
+                                try {
                                     const parsedLine = JSON.parse(line);
                                     if (parsedLine.response) {
-                                        fullResponse += parsedLine.response;
-                                        onUpdate(fullResponse);
+                                        latestResponse += parsedLine.response;
+                                        onUpdate(latestResponse);
                                     }
+                                } catch (e) {
+                                    // Skip invalid JSON lines
                                 }
-                            } catch (e) {
-                                console.error("Error parsing Ollama response:", e);
                             }
                             
-                            reader.read().then(processStream);
+                            fullResponse = latestResponse;
+                        } catch (e) {
+                            console.error("Error parsing Ollama progress response:", e);
                         }
-                        
-                        reader.read().then(processStream);
+                    },
+                    onload: function(response) {
+                        resolve(fullResponse);
                     },
                     onerror: function(error) {
+                        console.error("Ollama API error:", error);
                         reject(error);
                     }
                 });
