@@ -30,7 +30,7 @@
         showModelSelector: false
     };
     
-    // Add styles for the sidepanel
+    // Add styles for the sidepanel with improved contrast and readability
     GM_addStyle(`
         #ollama-sidepanel {
             position: fixed;
@@ -39,13 +39,14 @@
             width: ${config.panelWidth};
             height: 100vh;
             background-color: #ffffff;
-            box-shadow: -2px 0 5px rgba(0, 0, 0, 0.2);
+            box-shadow: -3px 0 10px rgba(0, 0, 0, 0.3);
             z-index: 10000;
             display: flex;
             flex-direction: column;
             transition: transform 0.3s ease;
-            font-family: Arial, sans-serif;
+            font-family: 'Segoe UI', Arial, sans-serif;
             transform: translateX(${config.panelWidth});
+            border-left: 1px solid #1a1a1a;
         }
         
         #ollama-sidepanel.visible {
@@ -56,26 +57,30 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 10px;
-            background-color: #f0f0f0;
-            border-bottom: 1px solid #ddd;
+            padding: 12px 15px;
+            background-color: #2c3e50;
+            color: white;
+            border-bottom: 2px solid #1abc9c;
         }
         
         #ollama-title {
             font-weight: bold;
+            font-size: 16px;
             margin: 0;
             cursor: pointer;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+            letter-spacing: 0.5px;
         }
         
         #ollama-model-selector {
             position: absolute;
-            top: 40px;
+            top: 45px;
             left: 10px;
             right: 10px;
-            background-color: white;
-            border: 1px solid #ddd;
+            background-color: #fff;
+            border: 1px solid #2c3e50;
             border-radius: 4px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
             z-index: 10001;
             max-height: 300px;
             overflow-y: auto;
@@ -87,124 +92,206 @@
         }
         
         .ollama-model-item {
-            padding: 8px 12px;
-            border-bottom: 1px solid #eee;
+            padding: 10px 14px;
+            border-bottom: 1px solid #e0e0e0;
             cursor: pointer;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            transition: background-color 0.2s;
         }
         
         .ollama-model-item:hover {
-            background-color: #f5f5f5;
+            background-color: #ecf0f1;
         }
         
         .ollama-model-item.active {
-            background-color: #e1f5fe;
+            background-color: #3498db;
+            color: white;
         }
         
         .ollama-model-name {
             font-weight: bold;
+            font-size: 14px;
+        }
+        
+        .ollama-model-item.active .ollama-model-info {
+            color: rgba(255,255,255,0.8);
         }
         
         .ollama-model-info {
-            color: #666;
+            color: #34495e;
             font-size: 12px;
+            font-weight: 500;
         }
         
         #ollama-toggle-btn {
             position: fixed;
             top: 20px;
             right: 0;
-            width: 30px;
-            height: 30px;
-            background-color: #4caf50;
+            width: 40px;
+            height: 40px;
+            background-color: #1abc9c;
             color: white;
             border: none;
-            border-radius: 4px 0 0 4px;
+            border-radius: 8px 0 0 8px;
             cursor: pointer;
             z-index: 9999;
+            font-size: 18px;
+            box-shadow: -2px 2px 5px rgba(0,0,0,0.2);
+            transition: background-color 0.3s;
+        }
+        
+        #ollama-toggle-btn:hover {
+            background-color: #16a085;
         }
         
         #ollama-close-btn {
             background-color: transparent;
             border: none;
             cursor: pointer;
-            font-size: 20px;
-            color: #555;
+            font-size: 22px;
+            color: white;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: background-color 0.2s;
+        }
+        
+        #ollama-close-btn:hover {
+            background-color: rgba(255,255,255,0.1);
         }
         
         #ollama-chat-container {
             flex: 1;
             overflow-y: auto;
-            padding: 10px;
+            padding: 15px;
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 12px;
+            background-color: #f5f7fa;
         }
         
         .ollama-message {
-            padding: 8px 12px;
-            border-radius: 12px;
+            padding: 10px 14px;
+            border-radius: 14px;
             max-width: 85%;
             word-wrap: break-word;
+            font-size: 15px;
+            line-height: 1.5;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
         }
         
         .ollama-user-message {
-            background-color: #e1f5fe;
+            background-color: #3498db;
+            color: white;
             align-self: flex-end;
             margin-left: 15%;
+            border-bottom-right-radius: 4px;
+            font-weight: 500;
         }
         
         .ollama-bot-message {
-            background-color: #f0f0f0;
+            background-color: white;
+            color: #2c3e50;
             align-self: flex-start;
             margin-right: 15%;
+            border-bottom-left-radius: 4px;
+            border: 1px solid #e0e0e0;
+            font-weight: 500;
         }
         
         #ollama-input-container {
             display: flex;
-            padding: 10px;
+            padding: 12px 15px;
             border-top: 1px solid #ddd;
+            background-color: white;
         }
         
         #ollama-input {
             flex: 1;
-            padding: 8px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+            padding: 10px 12px;
+            border: 1px solid #bdc3c7;
+            border-radius: 6px;
             resize: none;
+            font-family: inherit;
+            font-size: 14px;
+            line-height: 1.4;
+            transition: border-color 0.2s;
+        }
+        
+        #ollama-input:focus {
+            border-color: #3498db;
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(52,152,219,0.3);
         }
         
         #ollama-send-btn {
-            margin-left: 8px;
-            background-color: #4caf50;
+            margin-left: 10px;
+            background-color: #1abc9c;
             color: white;
             border: none;
-            border-radius: 4px;
-            padding: 0 15px;
+            border-radius: 6px;
+            padding: 0 18px;
             cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        
+        #ollama-send-btn:hover {
+            background-color: #16a085;
         }
         
         #ollama-status {
-            font-size: 12px;
-            color: #888;
+            font-size: 13px;
+            color: #34495e;
+            font-weight: 500;
             text-align: center;
-            padding: 5px;
+            padding: 8px;
+            background-color: #f8f9fa;
+            border-top: 1px solid #ecf0f1;
         }
 
         .ollama-spinner {
             display: inline-block;
-            width: 15px;
-            height: 15px;
-            border: 2px solid rgba(0, 0, 0, 0.1);
-            border-top-color: #4caf50;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(26,188,156,0.3);
+            border-top-color: #1abc9c;
             border-radius: 50%;
             animation: ollama-spin 1s linear infinite;
+            vertical-align: middle;
+            margin-right: 6px;
         }
         
         @keyframes ollama-spin {
             to { transform: rotate(360deg); }
+        }
+        
+        /* Scrollbar styling */
+        #ollama-chat-container::-webkit-scrollbar,
+        #ollama-model-selector::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        #ollama-chat-container::-webkit-scrollbar-track,
+        #ollama-model-selector::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        
+        #ollama-chat-container::-webkit-scrollbar-thumb,
+        #ollama-model-selector::-webkit-scrollbar-thumb {
+            background: #bdc3c7;
+            border-radius: 4px;
+        }
+        
+        #ollama-chat-container::-webkit-scrollbar-thumb:hover,
+        #ollama-model-selector::-webkit-scrollbar-thumb:hover {
+            background: #95a5a6;
         }
     `);
     
@@ -314,6 +401,7 @@
         // Generate a response from the model
         generateResponse: function(prompt, systemPrompt, onUpdate) {
             let fullResponse = '';
+            let responseAccumulator = '';
             
             return new Promise((resolve, reject) => {
                 GM_xmlhttpRequest({
@@ -352,27 +440,44 @@
                                 }
                             } catch (e) {
                                 // Expected for streaming responses
+                                resolve(fullResponse); // Make sure we resolve with the accumulated response
                             }
                         }
                     },
                     onprogress: function(response) {
                         try {
                             const lines = response.responseText.split('\n').filter(line => line.trim());
-                            let latestResponse = '';
                             
                             for (const line of lines) {
                                 try {
                                     const parsedLine = JSON.parse(line);
                                     if (parsedLine.message && parsedLine.message.content) {
-                                        latestResponse = parsedLine.message.content;
-                                        onUpdate(latestResponse);
+                                        // Instead of replacing the full response, we accumulate it
+                                        // But we need to handle special cases:
+                                        
+                                        // Some models repeat from the beginning each time
+                                        const newContent = parsedLine.message.content;
+                                        if (newContent.length < responseAccumulator.length) {
+                                            // If we get a shorter message, it's either starting over 
+                                            // or it's a chunk from the middle, keep our accumulated version
+                                            continue;
+                                        } else if (newContent.startsWith(responseAccumulator)) {
+                                            // This is a continuation, just add the new part
+                                            const additionalContent = newContent.substring(responseAccumulator.length);
+                                            responseAccumulator = newContent;
+                                        } else {
+                                            // If the new message doesn't build on what we have, 
+                                            // it might be a different approach to streaming
+                                            responseAccumulator += newContent;
+                                        }
+                                        
+                                        fullResponse = responseAccumulator;
+                                        onUpdate(fullResponse);
                                     }
                                 } catch (e) {
                                     // Skip invalid JSON lines
                                 }
                             }
-                            
-                            fullResponse = latestResponse;
                         } catch (e) {
                             console.error("Error parsing Ollama progress response:", e);
                         }
