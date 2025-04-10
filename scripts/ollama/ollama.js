@@ -30,7 +30,7 @@
         showModelSelector: false
     };
     
-    // Add styles for the sidepanel with improved contrast and readability
+    // Add styles for the sidepanel with high contrast and improved readability
     GM_addStyle(`
         #ollama-sidepanel {
             position: fixed;
@@ -39,14 +39,14 @@
             width: ${config.panelWidth};
             height: 100vh;
             background-color: #ffffff;
-            box-shadow: -3px 0 10px rgba(0, 0, 0, 0.3);
+            box-shadow: -5px 0 15px rgba(0, 0, 0, 0.4);
             z-index: 10000;
             display: flex;
             flex-direction: column;
             transition: transform 0.3s ease;
-            font-family: 'Segoe UI', Arial, sans-serif;
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
             transform: translateX(${config.panelWidth});
-            border-left: 1px solid #1a1a1a;
+            border-left: 2px solid #000000;
         }
         
         #ollama-sidepanel.visible {
@@ -57,30 +57,30 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 12px 15px;
-            background-color: #2c3e50;
+            padding: 14px 16px;
+            background-color: #111827;
             color: white;
-            border-bottom: 2px solid #1abc9c;
+            border-bottom: 3px solid #10b981;
         }
         
         #ollama-title {
-            font-weight: bold;
+            font-weight: 700;
             font-size: 16px;
             margin: 0;
             cursor: pointer;
-            text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.4);
             letter-spacing: 0.5px;
         }
         
         #ollama-model-selector {
             position: absolute;
-            top: 45px;
+            top: 52px;
             left: 10px;
             right: 10px;
             background-color: #fff;
-            border: 1px solid #2c3e50;
+            border: 1px solid #000000;
             border-radius: 4px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.3);
             z-index: 10001;
             max-height: 300px;
             overflow-y: auto;
@@ -176,32 +176,33 @@
         }
         
         .ollama-message {
-            padding: 10px 14px;
+            padding: 12px 16px;
             border-radius: 14px;
             max-width: 85%;
             word-wrap: break-word;
             font-size: 15px;
-            line-height: 1.5;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+            line-height: 1.6;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.15);
         }
         
         .ollama-user-message {
-            background-color: #3498db;
+            background-color: #1e40af;
             color: white;
             align-self: flex-end;
             margin-left: 15%;
             border-bottom-right-radius: 4px;
-            font-weight: 500;
+            font-weight: 600;
+            text-shadow: 0 1px 1px rgba(0,0,0,0.2);
         }
         
         .ollama-bot-message {
-            background-color: white;
-            color: #2c3e50;
+            background-color: #f8fafc;
+            color: #0f172a;
             align-self: flex-start;
             margin-right: 15%;
             border-bottom-left-radius: 4px;
-            border: 1px solid #e0e0e0;
-            font-weight: 500;
+            border: 1.5px solid #94a3b8;
+            font-weight: 600;
         }
         
         #ollama-input-container {
@@ -339,7 +340,7 @@
     const ollamaApi = {
         // Check if Ollama service is available and load models
         checkAvailability: function() {
-            return new Promise((resolve, reject) => {
+            return new Promise((resolve, _reject) => {
                 GM_xmlhttpRequest({
                     method: "GET",
                     url: `${config.apiBaseUrl}/api/tags`,
@@ -400,7 +401,8 @@
         
         // Generate a response from the model
         generateResponse: function(prompt, systemPrompt, onUpdate) {
-            let accumulatedText = '';
+            // Store the complete accumulated response
+            let fullResponse = '';
             
             return new Promise((resolve, reject) => {
                 GM_xmlhttpRequest({
@@ -430,24 +432,56 @@
                     onprogress: function(response) {
                         try {
                             const lines = response.responseText.split('\n').filter(line => line.trim());
+                            let newResponseContent = '';
+                            let hasNewContent = false;
                             
+                            // Process each line as a separate JSON chunk
                             for (const line of lines) {
                                 try {
                                     const parsedLine = JSON.parse(line);
-                                    if (parsedLine.message && parsedLine.message.content) {
-                                        accumulatedText += parsedLine.message.content;
-                                        onUpdate(accumulatedText);
+                                    if (parsedLine.message && parsedLine.message.content !== undefined) {
+                                        // Different models stream responses differently:
+                                        // Some send the full response so far each time
+                                        // Others send just new tokens
+                                        const content = parsedLine.message.content;
+                                        
+                                        // This approach handles both streaming styles:
+                                        // - If content is longer than what we have, it's a cumulative update
+                                        // - If it's shorter, it might be just new tokens
+                                        if (content.length >= fullResponse.length && content.startsWith(fullResponse)) {
+                                            // The model is sending cumulative responses
+                                            // Extract just the new part
+                                            newResponseContent = content.substring(fullResponse.length);
+                                            fullResponse = content;
+                                            hasNewContent = true;
+                                        } else if (content.length < fullResponse.length) {
+                                            // This might be just new tokens
+                                            newResponseContent = content;
+                                            fullResponse += content;
+                                            hasNewContent = true;
+                                        } else {
+                                            // This is a completely different response
+                                            // Use it directly (such as when the model corrects itself)
+                                            newResponseContent = content;
+                                            fullResponse = content;
+                                            hasNewContent = true;
+                                        }
                                     }
                                 } catch (e) {
                                     // Skip invalid JSON lines
                                 }
                             }
+                            
+                            // Update the UI with the complete accumulated response
+                            if (hasNewContent) {
+                                onUpdate(fullResponse);
+                            }
                         } catch (e) {
                             console.error("Error parsing Ollama response:", e);
                         }
                     },
-                    onload: function(response) {
-                        resolve(accumulatedText);
+                    onload: function(_response) {
+                        resolve(fullResponse);
                     },
                     onerror: function(error) {
                         console.error("Ollama API error:", error);
@@ -501,7 +535,7 @@
                             console.error("Error parsing Ollama progress response:", e);
                         }
                     },
-                    onload: function(response) {
+                    onload: function(_response) {
                         resolve(fullResponse);
                     },
                     onerror: function(error) {
