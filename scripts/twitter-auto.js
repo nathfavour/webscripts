@@ -70,9 +70,18 @@
                     GM_download({
                         url: URL.createObjectURL(new Blob([content], {type: 'text/plain'})),
                         name: filename,
-                        onload: () => utils.log(`Downloaded ${linksArray.length} links to ${filename}`),
+                        onload: () => {
+                            utils.log(`Downloaded ${linksArray.length} links to ${filename}`);
+                            // Clear storage after saving
+                            GM_setValue('hackathonLinks', []);
+                            utils.log('Cleared storage after saving');
+                        },
                         onerror: (error) => utils.log(`Error downloading file: ${error}`)
                     });
+                } else {
+                    // Clear storage even if no download was performed
+                    GM_setValue('hackathonLinks', []);
+                    utils.log('Cleared storage after saving');
                 }
                 
                 return linksArray.length;
