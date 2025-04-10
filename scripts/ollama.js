@@ -400,8 +400,7 @@
         
         // Generate a response from the model
         generateResponse: function(prompt, systemPrompt, onUpdate) {
-            let fullResponse = '';
-            let responseAccumulator = '';
+            let accumulatedText = '';
             
             return new Promise((resolve, reject) => {
                 GM_xmlhttpRequest({
@@ -428,22 +427,6 @@
                         "Content-Type": "application/json"
                     },
                     responseType: "text",
-                    onreadystatechange: function(response) {
-                        if (response.readyState === 4 && response.status === 200) {
-                            try {
-                                // In case of non-streaming response
-                                const data = JSON.parse(response.responseText);
-                                if (data.message && data.message.content) {
-                                    fullResponse = data.message.content;
-                                    onUpdate(fullResponse);
-                                    resolve(fullResponse);
-                                }
-                            } catch (e) {
-                                // Expected for streaming responses
-                                resolve(fullResponse); // Make sure we resolve with the accumulated response
-                            }
-                        }
-                    },
                     onprogress: function(response) {
                         try {
                             const lines = response.responseText.split('\n').filter(line => line.trim());
@@ -452,61 +435,19 @@
                                 try {
                                     const parsedLine = JSON.parse(line);
                                     if (parsedLine.message && parsedLine.message.content) {
-                                        // Instead of replacing the full response, we accumulate it
-                                        // But we need to handle special cases:
-                                        
-                                        // Some models repeat from the beginning each time
-                                        const newContent = parsedLine.message.content;
-                                        if (newContent.length < responseAccumulator.length) {
-                                            // If we get a shorter message, it's either starting over 
-                                            // or it's a chunk from the middle, keep our accumulated version
-                                            continue;
-                                        } else if (newContent.startsWith(responseAccumulator)) {
-                                            // This is a continuation, just add the new part
-                                            const additionalContent = newContent.substring(responseAccumulator.length);
-                                            responseAccumulator = newContent;
-                                        } else {
-                                            // If the new message doesn't build on what we have, 
-                                            // it might be a different approach to streaming
-                                            responseAccumulator += newContent;
-                                        }
-                                        
-                                        fullResponse = responseAccumulator;
-                                        onUpdate(fullResponse);
+                                        accumulatedText += parsedLine.message.content;
+                                        onUpdate(accumulatedText);
                                     }
                                 } catch (e) {
                                     // Skip invalid JSON lines
                                 }
                             }
                         } catch (e) {
-                            console.error("Error parsing Ollama progress response:", e);
+                            console.error("Error parsing Ollama response:", e);
                         }
                     },
                     onload: function(response) {
-                        try {
-                            // Some responses might not be streamed
-                            const text = response.responseText;
-                            const lines = text.split('\n').filter(line => line.trim());
-                            
-                            // Get the last complete JSON object
-                            for (let i = lines.length - 1; i >= 0; i--) {
-                                try {
-                                    const parsedLine = JSON.parse(lines[i]);
-                                    if (parsedLine.message && parsedLine.message.content) {
-                                        fullResponse = parsedLine.message.content;
-                                        onUpdate(fullResponse);
-                                        break;
-                                    }
-                                } catch (e) {
-                                    // Skip invalid JSON lines
-                                }
-                            }
-                            
-                            resolve(fullResponse);
-                        } catch (e) {
-                            console.error("Error parsing Ollama final response:", e);
-                            resolve(fullResponse);
-                        }
+                        resolve(accumulatedText);
                     },
                     onerror: function(error) {
                         console.error("Ollama API error:", error);
