@@ -84,42 +84,129 @@ class WebpageProcessor:
         return False
     
     def get_element_type(self, element: Tag) -> str:
-        """Determine semantic element type."""
+        """Determine semantic element type with detailed interaction capabilities."""
         if not isinstance(element, Tag):
             return "text"
+        
+        # Extract common interactive attributes
+        is_clickable = False
+        is_interactive = False
+        is_scrollable = False
+        
+        # Check for clickable elements
+        if (element.name in ["a", "button", "summary"] or 
+            element.get("onclick") or 
+            element.get("role") in ["button", "link", "menuitem"] or
+            element.get("tabindex") == "0" or
+            element.get("class") and any(cls for cls in element.get("class") if "btn" in cls.lower() or "button" in cls.lower())
+           ):
+            is_clickable = True
             
+        # Check for interactive elements
+        if (element.name in ["input", "select", "textarea", "button", "a"] or
+            element.get("contenteditable") == "true" or
+            element.get("role") in ["textbox", "combobox", "slider", "checkbox", "radio", "menuitem", "tab"] or
+            element.get("tabindex") and element.get("tabindex") != "-1"
+           ):
+            is_interactive = True
+            
+        # Check for potentially scrollable containers
+        if (element.get("style") and ("overflow" in element.get("style") or "scroll" in element.get("style")) or
+            element.get("class") and any(cls for cls in element.get("class") if "scroll" in cls.lower())
+           ):
+            is_scrollable = True
+            
+        # Now determine the primary element type
+        element_type = "other"
+        
+        # Determine semantic element type
         if element.name in ["h1", "h2", "h3", "h4", "h5", "h6"]:
-            return "heading"
+            element_type = "heading"
         elif element.name == "a" and element.get("href"):
-            return "link"
+            element_type = "link"
         elif element.name == "img":
-            return "image"
+            element_type = "image"
         elif element.name == "ul" or element.name == "ol":
-            return "list"
+            element_type = "list"
+        elif element.name == "li":
+            element_type = "list_item"
         elif element.name == "table":
-            return "table"
+            element_type = "table"
+        elif element.name == "tr":
+            element_type = "table_row"
+        elif element.name == "td" or element.name == "th":
+            element_type = "table_cell"
         elif element.name == "form":
-            return "form"
-        elif element.name == "button" or (element.name == "input" and element.get("type") == "button"):
-            return "button"
-        elif element.name == "input" or element.name == "textarea" or element.name == "select":
-            return "input"
+            element_type = "form"
+        elif element.name == "button":
+            element_type = "button"
+        elif element.name == "input":
+            input_type = element.get("type", "text")
+            element_type = f"input_{input_type}"
+        elif element.name == "textarea":
+            element_type = "textarea"
+        elif element.name == "select":
+            element_type = "select"
+        elif element.name == "option":
+            element_type = "option"
+        elif element.name == "label":
+            element_type = "label"
         elif element.name == "code" or element.name == "pre":
-            return "code"
+            element_type = "code"
         elif element.name == "blockquote":
-            return "quote"
+            element_type = "quote"
+        elif element.name in ["iframe", "frame", "embed"]:
+            element_type = "embedded_content"
+        elif element.name == "audio":
+            element_type = "audio"
+        elif element.name == "video":
+            element_type = "video"
+        elif element.name == "canvas":
+            element_type = "canvas"
+        elif element.name == "svg":
+            element_type = "svg"
+        elif element.name == "dialog":
+            element_type = "dialog"
+        elif element.name == "details":
+            element_type = "expandable"
+        elif element.name == "summary":
+            element_type = "expander"
         elif element.name in ["div", "section", "article"]:
-            return "container"
+            element_type = "container"
         elif element.name == "p":
-            return "paragraph"
+            element_type = "paragraph"
         elif element.name == "nav":
-            return "navigation"
+            element_type = "navigation"
         elif element.name == "header":
-            return "header"
+            element_type = "header"
         elif element.name == "footer":
-            return "footer"
-        else:
-            return "other"
+            element_type = "footer"
+        elif element.name == "aside":
+            element_type = "sidebar"
+        elif element.name == "main":
+            element_type = "main_content"
+        
+        # Check for ARIA roles that override the default semantic type
+        if element.get("role"):
+            aria_role = element.get("role")
+            if aria_role in ["button", "link", "checkbox", "radio", "tab", "menuitem", "combobox",
+                           "listbox", "textbox", "searchbox", "slider", "spinbutton", "switch",
+                           "grid", "treegrid", "menu", "menubar", "tree", "tablist", "dialog"]:
+                element_type = f"aria_{aria_role}"
+        
+        # Add interaction capabilities as a suffix if they exist
+        interaction_traits = []
+        if is_clickable:
+            interaction_traits.append("clickable")
+        if is_interactive:
+            interaction_traits.append("interactive")
+        if is_scrollable:
+            interaction_traits.append("scrollable")
+            
+        # Return the element type with potential interaction traits
+        if interaction_traits:
+            return f"{element_type}:{','.join(interaction_traits)}"
+        return element_type
 
     def extract_metadata(self, soup: BeautifulSoup) -> Dict:
         """Extract metadata from the page."""
@@ -162,7 +249,7 @@ class WebpageProcessor:
     def extract_element_content(self, element: Union[Tag, NavigableString], 
                                depth: int = 0, max_depth: int = 3) -> Dict:
         """
-        Extract content and structure from element recursively.
+        Extract content and structure from element recursively with detailed interactive properties.
         
         Args:
             element: BeautifulSoup element
@@ -170,7 +257,7 @@ class WebpageProcessor:
             max_depth: Maximum recursion depth
         
         Returns:
-            Dict containing element structure and content
+            Dict containing element structure and content with interactive properties
         """
         # Handle plain text
         if isinstance(element, NavigableString):
@@ -193,25 +280,154 @@ class WebpageProcessor:
             result["text"] = text_content
             
         # Extract attributes based on element type
-        if element_type == "link":
+        if "link" in element_type or element.name == "a":
             result["href"] = element.get("href", "")
             result["text"] = text_content
-        elif element_type == "image":
+            # Check if it's an external link
+            if result["href"] and result["href"].startswith(("http", "https", "ftp", "mailto")):
+                result["external"] = True
+                
+        elif "image" in element_type or element.name == "img":
             result["src"] = element.get("src", "")
             result["alt"] = element.get("alt", "")
-        elif element_type == "heading":
+            if element.get("width"):
+                result["width"] = element.get("width")
+            if element.get("height"):
+                result["height"] = element.get("height")
+                
+        elif "heading" in element_type or element.name in ["h1", "h2", "h3", "h4", "h5", "h6"]:
             result["level"] = element.name[1]  # h1 -> 1, h2 -> 2, etc.
             result["text"] = text_content
-        elif element_type == "input":
-            result["input_type"] = element.get("type", "text")
+            
+        elif "input" in element_type or element.name == "input":
+            input_type = element.get("type", "text")
+            result["input_type"] = input_type
             result["name"] = element.get("name", "")
             result["placeholder"] = element.get("placeholder", "")
+            
+            # Add more detailed input information
+            if element.get("required"):
+                result["required"] = True
+            if element.get("disabled"):
+                result["disabled"] = True
+            if element.get("readonly"):
+                result["readonly"] = True
+            if element.get("value"):
+                result["value"] = element.get("value")
+            if element.get("min"):
+                result["min"] = element.get("min")
+            if element.get("max"):
+                result["max"] = element.get("max")
+            if element.get("maxlength"):
+                result["maxlength"] = element.get("maxlength")
+                
+        elif "button" in element_type or element.name == "button":
+            result["button_type"] = element.get("type", "submit")
+            if element.get("disabled"):
+                result["disabled"] = True
+            if element.get("form"):
+                result["form"] = element.get("form")
+                
+        elif "textarea" in element_type or element.name == "textarea":
+            result["name"] = element.get("name", "")
+            result["rows"] = element.get("rows", "")
+            result["cols"] = element.get("cols", "")
+            if element.get("required"):
+                result["required"] = True
+            if element.get("disabled"):
+                result["disabled"] = True
+            if element.get("readonly"):
+                result["readonly"] = True
+                
+        elif "select" in element_type or element.name == "select":
+            result["name"] = element.get("name", "")
+            result["multiple"] = element.has_attr("multiple")
+            
+            # Extract options
+            options = []
+            for option in element.find_all("option"):
+                option_data = {
+                    "value": option.get("value", ""),
+                    "text": option.get_text().strip()
+                }
+                if option.has_attr("selected"):
+                    option_data["selected"] = True
+                if option.has_attr("disabled"):
+                    option_data["disabled"] = True
+                options.append(option_data)
+                
+            if options:
+                result["options"] = options
+        
+        elif "table" in element_type and element.name == "table":
+            # Extract basic table structure
+            result["rows"] = len(element.find_all("tr"))
+            if element.find("thead"):
+                result["has_header"] = True
+            if element.find("tbody"):
+                result["has_body"] = True
+            if element.find("tfoot"):
+                result["has_footer"] = True
+                
+        elif "iframe" in element_type or element.name == "iframe":
+            result["src"] = element.get("src", "")
+            if element.get("width"):
+                result["width"] = element.get("width")
+            if element.get("height"):
+                result["height"] = element.get("height")
+        
+        elif "video" in element_type or element.name == "video":
+            result["src"] = element.get("src", "")
+            result["controls"] = element.has_attr("controls")
+            result["autoplay"] = element.has_attr("autoplay")
+            result["loop"] = element.has_attr("loop")
+            result["muted"] = element.has_attr("muted")
+            
+        # Extract general interactive attributes
+        if element.get("onclick") or element.get("role") == "button":
+            result["clickable"] = True
+            
+        if element.has_attr("tabindex") and element["tabindex"] != "-1":
+            result["focusable"] = True
+            result["tabindex"] = element["tabindex"]
+            
+        if element.get("contenteditable") == "true":
+            result["editable"] = True
+            
+        if element.get("draggable") == "true":
+            result["draggable"] = True
+            
+        # Check for scrollable styles
+        if element.get("style"):
+            style = element.get("style")
+            if "overflow" in style and any(val in style for val in ["auto", "scroll"]):
+                result["scrollable"] = True
+                
+        # Extract ARIA attributes for accessibility information
+        aria_attrs = {}
+        for attr_name, attr_value in element.attrs.items():
+            if attr_name.startswith("aria-"):
+                aria_key = attr_name.replace("aria-", "")
+                aria_attrs[aria_key] = attr_value
+                
+        if aria_attrs:
+            result["aria"] = aria_attrs
             
         # Get CSS identifiers that may indicate semantic purpose
         if element.get("class"):
             result["classes"] = element["class"]
         if element.get("id"):
             result["id"] = element["id"]
+            
+        # Extract data attributes which often contain app-specific information
+        data_attrs = {}
+        for attr_name, attr_value in element.attrs.items():
+            if attr_name.startswith("data-"):
+                data_key = attr_name.replace("data-", "")
+                data_attrs[data_key] = attr_value
+                
+        if data_attrs:
+            result["data_attrs"] = data_attrs
 
         # Recursively process children if not at max depth and element can have children
         if depth < max_depth and element.contents:
