@@ -1,3 +1,15 @@
+// ==UserScript==
+// @name         Happiness-Adegbite Auto Vote
+// @namespace    nathfavour
+// @version      1.0.0
+// @description  Automatically votes for Happiness-Adegbite on oyep.org
+// @author       nathfavour
+// @match        https://www.oyep.org/oyostateyouthsummit2025/vote/
+// @icon         https://www.oyep.org/favicon.ico
+// @grant        none
+// @run-at       document-idle
+// ==/UserScript==
+
 // This script automates voting for "Happiness-Adegbite" on oyep.org.
 // Please paste into your browser console
 
