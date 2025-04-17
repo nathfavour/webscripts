@@ -1,0 +1,21 @@
+#!/bin/bash
+# Nautilus script to remove background from images using rembg
+
+# Supported image extensions (case-insensitive)
+exts="jpg jpeg png webp bmp tiff gif"
+
+for FILE in "$@"; do
+    # Get file extension (lowercase)
+    ext="${FILE##*.}"
+    ext_lc="$(echo "$ext" | tr '[:upper:]' '[:lower:]')"
+    # Check if extension is in supported list
+    if [[ " $exts " =~ " $ext_lc " ]]; then
+        dir="$(dirname "$FILE")"
+        base="$(basename "$FILE" ".$ext")"
+        out_file="$dir/${base}_removed.$ext_lc"
+        rembg i "$FILE" "$out_file"
+        notify-send "Remove Background" "Processed: $base.$ext_lc\nSaved as: ${base}_removed.$ext_lc"
+    else
+        notify-send "Remove Background" "Skipped: $FILE (unsupported file type)"
+    fi
+done
