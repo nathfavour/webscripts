@@ -142,6 +142,13 @@
         },
         
         /**
+         * Check if URL contains 'live'
+         */
+        isLiveSearchPage: () => {
+            return window.location.href.toLowerCase().includes('live');
+        },
+        
+        /**
          * Scroll to the top of the page quickly
          */
         scrollToTop: async () => {
@@ -409,9 +416,9 @@
                     // Process current tweets
                     const { foundOldTweet, foundNewLinks } = dom.processTweets();
                     
-                    // If we found a tweet older than the limit, restart
-                    if (foundOldTweet) {
-                        utils.log('Found tweets older than 12 hours. Restarting...');
+                    // If we found a tweet older than the limit, restart only if URL has 'live'
+                    if (foundOldTweet && utils.isLiveSearchPage()) {
+                        utils.log('Found tweets older than 12 hours and URL contains "live". Restarting...');
                         // Save links before restarting
                         fileManager.saveLinks(false);
                         await utils.scrollToTop();
