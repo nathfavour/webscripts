@@ -1,3 +1,4 @@
 sudo modprobe -r uvcvideo
 sudo modprobe -r v4l2loopback
 sudo modprobe v4l2loopback video_nr=0
+sudo modprobe v4l2loopback video_nr=0 card_label="DroidCam" exclusive_caps=1
