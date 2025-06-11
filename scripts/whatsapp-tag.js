@@ -37,12 +37,15 @@ function sleep(ms) {
         if (buffer === '@@') {
             buffer = '';
 
-            // Remove the trigger '@@' before inserting any tags
+            // Delete the last 2 written characters ("@@")
             const chatInput = document.activeElement;
             if (chatInput && typeof chatInput.value === 'string') {
+                // Remove last 2 characters from input value
                 chatInput.value = chatInput.value.slice(0, -2);
+                // Trigger input event to update WhatsApp's internal state
                 chatInput.dispatchEvent(new Event('input', { bubbles: true }));
             } else {
+                // Fallback: try to send backspaces
                 document.execCommand('delete', false, null);
                 document.execCommand('delete', false, null);
             }
@@ -114,9 +117,6 @@ function sleep(ms) {
             chatInput.dispatchEvent(keyboardEvent);
 
             document.execCommand('insertText', false, ' ');
-        }
-    }
-})();
         }
     }
 })();
