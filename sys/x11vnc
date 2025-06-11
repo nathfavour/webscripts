@@ -1,0 +1,1 @@
+x11vnc -display :0 -auth guess -forever -passwd yourpassword
