@@ -26,5 +26,15 @@ func main() {
 	fmt.Println("Running: sudo apt-get install ...")
 	if err := installCmd.Run(); err != nil {
 		fmt.Println("Error:", err)
+		return
+	}
+
+	keyringCmd := exec.Command("sudo", "apt-get", "install", "-y",
+		"gnome-keyring", "libsecret-1-0", "libsecret-1-dev")
+	keyringCmd.Stdout = os.Stdout
+	keyringCmd.Stderr = os.Stderr
+	fmt.Println("Running: sudo apt-get install gnome-keyring libsecret-1-0 libsecret-1-dev")
+	if err := keyringCmd.Run(); err != nil {
+		fmt.Println("Error:", err)
 	}
 }
