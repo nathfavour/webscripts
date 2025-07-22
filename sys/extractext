@@ -1,0 +1,13 @@
+#!/bin/bash
+# Extract text from image using tesseract and copy to clipboard
+
+if [ -z "$1" ]; then
+    notify-send "Extract Text" "No file selected."
+    exit 1
+fi
+
+TMPFILE=$(mktemp)
+tesseract "$1" "$TMPFILE" &> /dev/null
+cat "${TMPFILE}.txt" | xclip -selection clipboard
+rm -f "${TMPFILE}" "${TMPFILE}.txt"
+notify-send "Extract Text" "Text extracted and copied to clipboard."
