@@ -194,8 +194,26 @@
             anchors.forEach(anchor => {
                 const href = anchor.getAttribute('href');
                 if (!href) return;
-                // Skip Facebook internal links
-                if (href.startsWith('/') || href.includes('facebook.com') || href.includes('fb.com')) return;
+                // Skip Facebook internal navigation (profile, post, group, etc.)
+                if (href.startsWith('/') && !href.startsWith('/l.php')) return;
+                // Handle Facebook's external link wrapper
+                if (href.includes('l.facebook.com/l.php?u=')) {
+                    try {
+                        const urlObj = new URL(href, window.location.origin);
+                        const realUrl = decodeURIComponent(urlObj.searchParams.get('u') || '');
+                        if (realUrl && !config.foundLinksCache.has(realUrl)) {
+                            links.push(realUrl);
+                        }
+                    } catch (e) {
+                        // fallback: add the wrapper link if parsing fails
+                        if (!config.foundLinksCache.has(href)) {
+                            links.push(href);
+                        }
+                    }
+                    return;
+                }
+                // Skip other Facebook internal links (except l.php above)
+                if (href.includes('facebook.com') || href.includes('fb.com')) return;
                 // Add only if not already in cache
                 if (!config.foundLinksCache.has(href)) {
                     links.push(href);
@@ -313,4 +331,3 @@
     };
     utils.log('API exposed as window.FacebookHackathonFinder');
 })();
-          
