@@ -1,10 +1,19 @@
 import os
 import re
 import webbrowser
+import subprocess
 
 # Allowed file extensions and URL schemes
 ALLOWED_EXTENSIONS = ['.txt', '.md', '.log']
 ALLOWED_SCHEMES = ['http', 'https']
+
+def is_android():
+    """Detect if the script is running on Android."""
+    return (
+        'ANDROID_ROOT' in os.environ
+        or 'ANDROID_DATA' in os.environ
+        or (hasattr(os, 'uname') and 'android' in os.uname().release.lower())
+    )
 
 def find_files(root_dir, extensions):
     """Recursively find files with allowed extensions."""
@@ -15,7 +24,6 @@ def find_files(root_dir, extensions):
 
 def extract_links(text, schemes):
     """Extract URLs with allowed schemes from text."""
-    # Regex for URLs
     pattern = re.compile(r'\b(' + '|'.join(schemes) + r')://[^\s<>"\'\]\)]+', re.IGNORECASE)
     return pattern.findall(text), pattern.finditer(text)
 
@@ -26,7 +34,6 @@ def get_all_links(files, schemes):
         try:
             with open(file, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
-                # Only keep links with allowed schemes
                 matches = re.findall(r'\b(?:' + '|'.join(schemes) + r')://[^\s<>"\'\]\)]+', content, re.IGNORECASE)
                 links.extend(matches)
         except Exception as e:
@@ -47,9 +54,14 @@ def main():
         return
 
     print(f"Found {len(unique_links)} unique links.")
+    use_xdg_open = is_android()
+
     for idx, link in enumerate(unique_links, 1):
         print(f"\n[{idx}/{len(unique_links)}] Opening: {link}")
-        webbrowser.open(link)
+        if use_xdg_open:
+            subprocess.run(['xdg-open', link])
+        else:
+            webbrowser.open(link)
         input("Press Enter to open the next link...")
 
 if __name__ == "__main__":
