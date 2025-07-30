@@ -18,7 +18,7 @@
 
     // --- Configuration ---
     const MAX_FACEBOOK_DATE = 12 * 60 * 60 * 1000; // 12 hours in ms
-    const MAX_FACEBOOK_TIME = 20 * 60 * 1000; // 20 minutes in ms
+    const MAX_FACEBOOK_TIME = 30 * 60 * 1000; // 30 minutes in ms
     const SCROLL_DELAY_MIN = 1000;
     const SCROLL_DELAY_MAX = 2500;
     const LOAD_WAIT_TIME = 1500;
