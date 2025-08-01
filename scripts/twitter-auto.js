@@ -349,6 +349,7 @@
     const controller = {
         running: false,
         autoSaveTimer: null,
+        hasReloaded: false,
         
         /**
          * Initialize the script
@@ -356,6 +357,9 @@
         init: () => {
             // Load previously saved links
             initializeCache();
+            
+            // Reset reload flag on init
+            controller.hasReloaded = false;
             
             if (!utils.isHackathonSearchPage()) {
                 utils.log('Not on a hackathon search page. Script will wait for navigation.');
@@ -416,14 +420,21 @@
                     // Process current tweets
                     const { foundOldTweet, foundNewLinks } = dom.processTweets();
                     
-                    // If we found a tweet older than the limit, restart only if URL has 'live'
-                    if (foundOldTweet && utils.isLiveSearchPage()) {
-                        utils.log('Found tweets older than 12 hours and URL contains "live". Restarting...');
-                        // Save links before restarting
-                        fileManager.saveLinks(false);
-                        await utils.scrollToTop();
-                        utils.reloadPage();
-                        break;
+                    // If we found a tweet older than the limit
+                    if (foundOldTweet) {
+                        if (!controller.hasReloaded && utils.isLiveSearchPage()) {
+                            utils.log('Found tweets older than 12 hours and URL contains "live". Restarting...');
+                            // Save links before restarting
+                            fileManager.saveLinks(false);
+                            controller.hasReloaded = true;
+                            await utils.scrollToTop();
+                            utils.reloadPage();
+                            break;
+                        } else {
+                            utils.log('Found tweets older than 12 hours. Stopping and saving final batch.');
+                            controller.stop();
+                            break;
+                        }
                     }
                     
                     // Scroll down to load more content
@@ -437,11 +448,7 @@
             } catch (error) {
                 utils.log(`Error in main process: ${error.message}`);
                 controller.running = false;
-                
-                // Attempt recovery after error
-                setTimeout(() => {
-                    controller.start();
-                }, 5000);
+                // Do not restart after error if we've already reloaded
             }
         },
         
