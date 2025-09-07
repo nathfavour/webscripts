@@ -2,3 +2,7 @@ docx/
 **.txt
 startup/
 .docx/
+# Added by Autocommiter: ensure *.env*
+*.env*
+# Added by Autocommiter: ensure .env*
+.env*
