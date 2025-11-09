@@ -15,6 +15,8 @@
 (function () {
     'use strict';
 
+
+
     // Config (exposed on window.XFollowInspector.config)
     const config = {
         autoFollow: true, // per user instruction: run automatically
