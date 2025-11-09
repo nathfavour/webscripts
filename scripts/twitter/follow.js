@@ -11,7 +11,6 @@
 // @run-at       document-idle
 // @license      MIT
 // ==/UserScript==
-//
 
 (function () {
     'use strict';
