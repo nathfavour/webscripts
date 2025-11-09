@@ -156,46 +156,77 @@
 
         function dispatch(el, type) {
             try {
-                const ev = new PointerEvent(type, { bubbles: true, cancelable: true, composed: true });
+                const rect = el.getBoundingClientRect();
+                const ev = new PointerEvent(type, {
+                    bubbles: true,
+                    cancelable: true,
+                    composed: true,
+                    clientX: rect.x + rect.width / 2,
+                    clientY: rect.y + rect.height / 2
+                });
                 el.dispatchEvent(ev);
             } catch (e) {
-                try { el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true })); } catch (e) { }
+                try {
+                    const rect = el.getBoundingClientRect();
+                    el.dispatchEvent(new MouseEvent(type, {
+                        bubbles: true,
+                        cancelable: true,
+                        clientX: rect.x + rect.width / 2,
+                        clientY: rect.y + rect.height / 2
+                    }));
+                } catch (e) { }
             }
         }
 
         dispatch(anchor, 'pointermove');
+        await utils.sleep(50);
         dispatch(anchor, 'mousemove');
+        await utils.sleep(50);
         dispatch(anchor, 'mouseover');
+        await utils.sleep(50);
         dispatch(anchor, 'mouseenter');
 
         // Wait for popover to appear
-        await utils.sleep(utils.randomBetween(300, 1200));
+        await utils.sleep(utils.randomBetween(500, 1500));
 
-        // Heuristic: find a nearby popover container by searching for elements containing 'Follows you' or 'Followers' or a Follow button that appeared recently
-        const popoverCandidates = Array.from(document.querySelectorAll('div,section,article')).filter(el => {
-            if (!el || !el.textContent) return false;
-            const txt = el.textContent.toLowerCase();
-            return txt.includes('follows you') || txt.includes('followers') || txt.includes('following');
+        // Heuristic: find the actual popover card near the anchor
+        // X typically uses role="dialog" or specific data-testid for popovers
+        const anchorRect = anchor.getBoundingClientRect();
+        let popover = null;
+
+        // First, try to find a dialog or popover by role
+        const dialogs = Array.from(document.querySelectorAll('[role="dialog"], [role="tooltip"], [data-testid*="UserCell"]')).filter(el => {
+            try {
+                const r = el.getBoundingClientRect();
+                if (r.width === 0 && r.height === 0) return false;
+                // Popover should be near the anchor or to the right/below
+                const distanceX = Math.abs(r.left - anchorRect.right);
+                const distanceY = Math.abs(r.top - anchorRect.top);
+                return distanceX < 300 && distanceY < 300;
+            } catch (e) { return false; }
         });
 
-        // Prefer one that is visible and near the anchor
-        const anchorRect = anchor.getBoundingClientRect();
-        for (const cand of popoverCandidates) {
-            try {
-                const r = cand.getBoundingClientRect();
-                if (r.width === 0 && r.height === 0) continue;
-                // proximity: overlap in vertical band
-                if (Math.abs(r.top - anchorRect.top) < 500) return cand;
-            } catch (e) { continue; }
+        if (dialogs.length > 0) {
+            // Pick the smallest (most specific) dialog
+            dialogs.sort((a, b) => (a.getBoundingClientRect().width * a.getBoundingClientRect().height) - (b.getBoundingClientRect().width * b.getBoundingClientRect().height));
+            popover = dialogs[0];
         }
 
-        // Fallback: try to find any element with a Follow button visible
-        const followBtn = Array.from(document.querySelectorAll('button,div[role="button"]')).find(b => {
-            if (!b || !b.textContent) return false;
-            return /^\s*follow\s*$/i.test(b.textContent) || /^\s*following\s*$/i.test(b.textContent);
-        });
-        if (followBtn) return followBtn.closest('div') || followBtn.parentElement || followBtn;
-        return null;
+        // Fallback: look for elements with both followers and following text
+        if (!popover) {
+            const allElements = Array.from(document.querySelectorAll('div')).filter(el => {
+                try {
+                    const r = el.getBoundingClientRect();
+                    if (r.width === 0 || r.height === 0) return false;
+                    if (r.width > 500 || r.height > 400) return false; // Popover should be reasonably small
+                    const txt = el.textContent.toLowerCase();
+                    return txt.includes('followers') && (txt.includes('following') || txt.includes('follow'));
+                } catch (e) { return false; }
+            });
+            if (allElements.length > 0) popover = allElements[0];
+        }
+
+        return popover;
     }
 
     // Popover parsing: get follower & following counts and the Follow button element
@@ -244,18 +275,28 @@
     }
 
     function findNumericNearby(el) {
-        // look for sibling or parent text nodes that contain numbers
+        // look for immediate sibling or close text nodes that contain numbers
         if (!el) return null;
         // check previousSibling
         const prev = el.previousElementSibling;
-        if (prev && /\d/.test(prev.textContent || '')) return (prev.textContent || '').trim();
+        if (prev) {
+            const txt = (prev.textContent || '').trim();
+            if (/\d/.test(txt)) return txt;
+        }
         const next = el.nextElementSibling;
-        if (next && /\d/.test(next.textContent || '')) return (next.textContent || '').trim();
-        // parent first child
+        if (next) {
+            const txt = (next.textContent || '').trim();
+            if (/\d/.test(txt)) return txt;
+        }
+        // check parent's children for numeric elements
         const p = el.parentElement;
         if (p) {
-            const nums = Array.from(p.querySelectorAll('*')).map(n => (n.textContent || '').trim()).filter(t => /\d/.test(t));
-            if (nums.length > 0) return nums[0];
+            // look at immediate children first
+            for (const child of p.children) {
+                if (child === el) continue;
+                const txt = (child.textContent || '').trim();
+                if (/^[\d,.kmKM]+$/.test(txt)) return txt; // numeric-like string
+            }
         }
         return null;
     }
