@@ -580,7 +580,7 @@
 
                         // simulate hover & parse with timeout protection
                         const pop = await simulateHover(anchor);
-                        
+
                         // Always unhover after processing
                         await unhover(anchor);
                         await utils.sleep(100);
