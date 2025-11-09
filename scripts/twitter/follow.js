@@ -265,7 +265,7 @@
                     return txt.includes('followers') && txt.includes('following');
                 } catch (e) { return false; }
             });
-            
+
             if (allElements.length > 0) {
                 popover = allElements[0];
                 break;
