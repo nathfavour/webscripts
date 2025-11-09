@@ -232,42 +232,53 @@
     // Popover parsing: get follower & following counts and the Follow button element
     function parsePopover(pop) {
         if (!pop) return null;
-        // Search for elements containing 'followers' or 'following'
-        const walker = pop.querySelectorAll('*');
+        // Search for text labels and numbers within the popover
+        const walker = Array.from(pop.querySelectorAll('*'));
         let followersText = null;
         let followingText = null;
         let followButton = null;
+
+        // Strategy: find text nodes that say 'followers' or 'following', then grab nearby number
         for (const el of walker) {
             const txt = (el.textContent || '').trim();
             if (!txt) continue;
             const low = txt.toLowerCase();
-            if (!followersText && /followers?/i.test(low)) {
-                // try to find a nearby numeric sibling
+
+            // Match 'Followers' (with count)
+            if (!followersText && /^followers?$/i.test(low)) {
                 const num = findNumericNearby(el);
                 if (num) followersText = num;
             }
-            if (!followingText && /following/i.test(low)) {
+
+            // Match 'Following' (with count)  
+            if (!followingText && /^following$/i.test(low)) {
                 const num = findNumericNearby(el);
                 if (num) followingText = num;
             }
-            if (!followButton && (/^\s*follow\s*$/i.test(txt) || /^\s*following\s*$/i.test(txt))) {
-                // element may be button-like
-                if (el.matches && (el.matches('button') || el.getAttribute('role') === 'button')) followButton = el;
-                else followButton = el.closest('button') || el.closest('[role="button"]') || el;
+
+            // Find the Follow button
+            if (!followButton && /^\s*follow\s*$/i.test(txt)) {
+                const btn = el.closest('button') || el.closest('[role="button"]');
+                if (btn) followButton = btn;
             }
         }
 
-        // Fallback numeric extraction: look for numbers in pop text if we didn't find labeled ones
-        if ((!followersText || !followingText)) {
-            const nums = Array.from(pop.querySelectorAll('*')).map(n => (n.textContent || '').trim()).filter(t => /\d/.test(t)).map(t => t.replace(/\s+/g, ' '));
-            const candidates = nums.map(n => n).filter(Boolean).slice(0, 6);
-            // pick two distinct numeric-looking tokens if possible
-            const parsed = candidates.map(c => ({ raw: c, parsed: parseCount(c).parsed })).filter(x => x.parsed);
-            if (parsed.length >= 2) {
-                // assume the larger is followers
-                parsed.sort((a, b) => b.parsed - a.parsed);
-                followersText = parsed[0].raw;
-                followingText = parsed[1].raw;
+        // Fallback: search for numeric elements that look like counts
+        if (!followersText || !followingText) {
+            // Extract all text nodes with numbers from direct children of popover
+            const numberNodes = walker.filter(el => {
+                const txt = (el.textContent || '').trim();
+                return /^[\d,.kmK]+$/.test(txt);
+            }).map(el => (el.textContent || '').trim());
+
+            if (numberNodes.length >= 2) {
+                const parsed = numberNodes.map(n => ({ raw: n, parsed: parseCount(n).parsed })).filter(x => x.parsed);
+                if (parsed.length >= 2) {
+                    // Assume larger is followers, smaller is following
+                    parsed.sort((a, b) => b.parsed - a.parsed);
+                    if (!followersText) followersText = parsed[0].raw;
+                    if (!followingText) followingText = parsed[1].raw;
+                }
             }
         }
 
@@ -438,6 +449,8 @@
             const seen = storage.loadSeen() || {};
             const seenUsernames = new Set(Object.keys(seen));
             const pending = [];
+            let lastScrollHeight = 0;
+            let noChangeCount = 0;
 
             while (controller.running) {
                 if (document.visibilityState !== 'visible') {
@@ -446,25 +459,49 @@
                     continue;
                 }
 
-                // extract anchors
+                // extract anchors from current DOM
                 const anchors = extractProfileAnchors(document);
-                for (const a of anchors) {
-                    try {
-                        const href = a.getAttribute('href') || '';
-                        const mRel = href.match(/^\/?([A-Za-z0-9_]{1,15})\/?$/);
-                        const mAbs = href.match(/^https?:\/\/(?:www\.)?(?:x|twitter)\.com\/(?:#!\/)?([A-Za-z0-9_]{1,15})\/?$/);
-                        const uname = (mRel && mRel[1]) || (mAbs && mAbs[1]);
-                        if (!uname) continue;
-                        const u = uname.toLowerCase();
-                        if (!seenUsernames.has(u) && !pending.includes(u)) pending.push(u);
-                    } catch (e) { continue; }
+                if (anchors.length > 0) {
+                    utils.log(`Found ${anchors.length} profile anchors on page`);
+                    for (const a of anchors) {
+                        try {
+                            const href = a.getAttribute('href') || '';
+                            // Match /username format
+                            let uname = null;
+                            const mRel = href.match(/^\/([A-Za-z0-9_]{1,15})(?:\/.*)?$/);
+                            if (mRel) uname = mRel[1];
+                            if (!uname) {
+                                const mAbs = href.match(/^https?:\/\/(?:www\.)?(?:x|twitter)\.com\/([A-Za-z0-9_]{1,15})(?:\/.*)?$/);
+                                if (mAbs) uname = mAbs[1];
+                            }
+                            if (!uname) continue;
+                            const u = uname.toLowerCase();
+                            if (!seenUsernames.has(u) && !pending.includes(u)) {
+                                pending.push(u);
+                                utils.log(`Added ${u} to pending queue`);
+                            }
+                        } catch (e) { continue; }
+                    }
                 }
 
                 if (pending.length === 0) {
-                    // scroll to load more
+                    // scroll to load more comments
+                    const scrollHeight = document.documentElement.scrollHeight;
+                    if (scrollHeight === lastScrollHeight) {
+                        noChangeCount++;
+                        if (noChangeCount > 3) {
+                            utils.log('No new content loaded after 3 scroll attempts — stopping');
+                            controller.running = false;
+                            break;
+                        }
+                    } else {
+                        noChangeCount = 0;
+                        lastScrollHeight = scrollHeight;
+                    }
+                    utils.log('No pending users — scrolling to load more comments...');
                     await utils.sleep(500);
-                    try { window.scrollBy({ top: utils.randomBetween(200, 600), behavior: 'smooth' }); } catch (e) { }
-                    await utils.sleep(utils.randomBetween(1000, 2000));
+                    try { window.scrollBy({ top: utils.randomBetween(300, 800), behavior: 'smooth' }); } catch (e) { }
+                    await utils.sleep(utils.randomBetween(1500, 2500));
                     continue;
                 }
 
@@ -479,14 +516,20 @@
                 let attempts = 0;
                 while (attempts < burstSize && pending.length > 0 && controller.running) {
                     const uname = pending.shift();
+                    utils.log(`Processing user: ${uname}`);
+                    
                     // locate a fresh anchor for this username
-                    const anchor = Array.from(document.querySelectorAll('a')).find(a => {
+                    const allAnchors = Array.from(document.querySelectorAll('a'));
+                    const anchor = allAnchors.find(a => {
                         if (!a) return false;
-                        const href = a.getAttribute('href') || '';
-                        const rel = href.replace(/^\//, '').replace(/\/$/, '').toLowerCase();
-                        return rel === uname.toLowerCase() || href.toLowerCase().includes('/' + uname.toLowerCase() + '/');
+                        const href = (a.getAttribute('href') || '').toLowerCase();
+                        // Match /username or /username/...
+                        return href === '/' + uname.toLowerCase() || href.startsWith('/' + uname.toLowerCase() + '/');
                     });
-                    if (!anchor) continue;
+                    if (!anchor) {
+                        utils.log(`No anchor found for ${uname}`);
+                        continue;
+                    }
                     // simulate hover & parse
                     const pop = await simulateHover(anchor);
                     const parsed = parsePopover(pop);
