@@ -146,6 +146,42 @@
         return found;
     }
 
+    // Unhover and close popover
+    async function unhover(anchor) {
+        if (!anchor) return;
+        try {
+            function dispatch(el, type) {
+                try {
+                    const rect = el.getBoundingClientRect();
+                    const ev = new PointerEvent(type, {
+                        bubbles: true,
+                        cancelable: true,
+                        composed: true,
+                        clientX: rect.x + rect.width / 2,
+                        clientY: rect.y + rect.height / 2
+                    });
+                    el.dispatchEvent(ev);
+                } catch (e) {
+                    try {
+                        const rect = el.getBoundingClientRect();
+                        el.dispatchEvent(new MouseEvent(type, {
+                            bubbles: true,
+                            cancelable: true,
+                            clientX: rect.x + rect.width / 2,
+                            clientY: rect.y + rect.height / 2
+                        }));
+                    } catch (e) { }
+                }
+            }
+
+            dispatch(anchor, 'mouseout');
+            await utils.sleep(50);
+            dispatch(anchor, 'mouseleave');
+            await utils.sleep(50);
+            dispatch(anchor, 'pointerout');
+        } catch (e) { }
+    }
+
     // Hover simulation
     async function simulateHover(anchor) {
         if (!anchor) return null;
@@ -186,34 +222,37 @@
         await utils.sleep(50);
         dispatch(anchor, 'mouseenter');
 
-        // Wait for popover to appear
-        await utils.sleep(utils.randomBetween(500, 1500));
-
-        // Heuristic: find the actual popover card near the anchor
-        // X typically uses role="dialog" or specific data-testid for popovers
-        const anchorRect = anchor.getBoundingClientRect();
+        // Wait for popover to appear with timeout
+        const popoverTimeout = 2000; // max wait time
+        const startWait = Date.now();
         let popover = null;
 
-        // First, try to find a dialog or popover by role
-        const dialogs = Array.from(document.querySelectorAll('[role="dialog"], [role="tooltip"], [data-testid*="UserCell"]')).filter(el => {
-            try {
-                const r = el.getBoundingClientRect();
-                if (r.width === 0 && r.height === 0) return false;
-                // Popover should be near the anchor or to the right/below
-                const distanceX = Math.abs(r.left - anchorRect.right);
-                const distanceY = Math.abs(r.top - anchorRect.top);
-                return distanceX < 300 && distanceY < 300;
-            } catch (e) { return false; }
-        });
+        while (Date.now() - startWait < popoverTimeout && !popover) {
+            await utils.sleep(200);
 
-        if (dialogs.length > 0) {
-            // Pick the smallest (most specific) dialog
-            dialogs.sort((a, b) => (a.getBoundingClientRect().width * a.getBoundingClientRect().height) - (b.getBoundingClientRect().width * b.getBoundingClientRect().height));
-            popover = dialogs[0];
-        }
+            // Heuristic: find the actual popover card near the anchor
+            const anchorRect = anchor.getBoundingClientRect();
 
-        // Fallback: look for elements with both followers and following text
-        if (!popover) {
+            // First, try to find a dialog or popover by role
+            const dialogs = Array.from(document.querySelectorAll('[role="dialog"], [role="tooltip"], [data-testid*="UserCell"]')).filter(el => {
+                try {
+                    const r = el.getBoundingClientRect();
+                    if (r.width === 0 && r.height === 0) return false;
+                    // Popover should be near the anchor or to the right/below
+                    const distanceX = Math.abs(r.left - anchorRect.right);
+                    const distanceY = Math.abs(r.top - anchorRect.top);
+                    return distanceX < 300 && distanceY < 300;
+                } catch (e) { return false; }
+            });
+
+            if (dialogs.length > 0) {
+                // Pick the smallest (most specific) dialog
+                dialogs.sort((a, b) => (a.getBoundingClientRect().width * a.getBoundingClientRect().height) - (b.getBoundingClientRect().width * b.getBoundingClientRect().height));
+                popover = dialogs[0];
+                break;
+            }
+
+            // Fallback: look for elements with both followers and following text
             const allElements = Array.from(document.querySelectorAll('div')).filter(el => {
                 try {
                     const r = el.getBoundingClientRect();
@@ -223,7 +262,10 @@
                     return txt.includes('followers') && (txt.includes('following') || txt.includes('follow'));
                 } catch (e) { return false; }
             });
-            if (allElements.length > 0) popover = allElements[0];
+            if (allElements.length > 0) {
+                popover = allElements[0];
+                break;
+            }
         }
 
         return popover;
@@ -517,44 +559,64 @@
                 while (attempts < burstSize && pending.length > 0 && controller.running) {
                     const uname = pending.shift();
                     utils.log(`Processing user: ${uname}`);
-                    
-                    // locate a fresh anchor for this username
-                    const allAnchors = Array.from(document.querySelectorAll('a'));
-                    const anchor = allAnchors.find(a => {
-                        if (!a) return false;
-                        const href = (a.getAttribute('href') || '').toLowerCase();
-                        // Match /username or /username/...
-                        return href === '/' + uname.toLowerCase() || href.startsWith('/' + uname.toLowerCase() + '/');
-                    });
-                    if (!anchor) {
-                        utils.log(`No anchor found for ${uname}`);
-                        continue;
-                    }
-                    // simulate hover & parse
-                    const pop = await simulateHover(anchor);
-                    const parsed = parsePopover(pop);
-                    if (!parsed || !parsed.followersText || !parsed.followingText) {
-                        utils.log(`Insufficient popover data for ${uname} — skipping`);
+
+                    // Set a timeout for this user's processing to prevent hanging on blocking items
+                    const userTimeout = 15000; // 15 seconds max per user
+                    const userStartTime = Date.now();
+
+                    try {
+                        // locate a fresh anchor for this username
+                        const allAnchors = Array.from(document.querySelectorAll('a'));
+                        const anchor = allAnchors.find(a => {
+                            if (!a) return false;
+                            const href = (a.getAttribute('href') || '').toLowerCase();
+                            // Match /username or /username/...
+                            return href === '/' + uname.toLowerCase() || href.startsWith('/' + uname.toLowerCase() + '/');
+                        });
+                        if (!anchor) {
+                            utils.log(`No anchor found for ${uname}`);
+                            continue;
+                        }
+
+                        // simulate hover & parse with timeout protection
+                        const pop = await simulateHover(anchor);
+                        
+                        // Always unhover after processing
+                        await unhover(anchor);
+                        await utils.sleep(100);
+
+                        const parsed = parsePopover(pop);
+                        if (!parsed || !parsed.followersText || !parsed.followingText) {
+                            utils.log(`Insufficient popover data for ${uname} — skipping`);
+                            seenUsernames.add(uname);
+                            // still add to seen to avoid repeated attempts
+                            const seenObj = storage.loadSeen();
+                            const now = new Date();
+                            const ignoredUntil = new Date(now.getTime() + config.ignoreDays * 24 * 60 * 60 * 1000);
+                            seenObj[uname] = { addedAtISO: utils.nowISO(), ignoredUntilISO: ignoredUntil.toISOString(), sourceStatusURL: location.href };
+                            storage.saveSeen(seenObj);
+                            continue;
+                        }
+
+                        // Check if we've exceeded timeout for this user
+                        if (Date.now() - userStartTime > userTimeout) {
+                            utils.log(`User ${uname} processing exceeded timeout — skipping to prevent hanging`);
+                            seenUsernames.add(uname);
+                            continue;
+                        }
+
+                        // attempt follow if heuristics allow
+                        const result = await attemptFollow(uname, anchor, parsed.followersText, parsed.followingText);
                         seenUsernames.add(uname);
-                        // still add to seen to avoid repeated attempts
-                        const seenObj = storage.loadSeen();
-                        const now = new Date();
-                        const ignoredUntil = new Date(now.getTime() + config.ignoreDays * 24 * 60 * 60 * 1000);
-                        seenObj[uname] = { addedAtISO: utils.nowISO(), ignoredUntilISO: ignoredUntil.toISOString(), sourceStatusURL: location.href };
-                        storage.saveSeen(seenObj);
-                        continue;
+                        attempts += 1;
+
+                        // random fast delay between attempts
+                        await utils.sleep(utils.randomBetween(config.fastDelayRange[0], config.fastDelayRange[1]));
+                    } catch (e) {
+                        utils.log(`Error processing ${uname}: ${e.message}`);
+                        seenUsernames.add(uname); // mark as seen even on error to avoid infinite retry
                     }
-
-                    // attempt follow if heuristics allow
-                    const result = await attemptFollow(uname, anchor, parsed.followersText, parsed.followingText);
-                    seenUsernames.add(uname);
-                    attempts += 1;
-
-                    // random fast delay between attempts
-                    await utils.sleep(utils.randomBetween(config.fastDelayRange[0], config.fastDelayRange[1]));
-                }
-
-                // after burst, enter cooldown
+                }                // after burst, enter cooldown
                 const cooldown = utils.randomBetween(config.burstCooldownRange[0], config.burstCooldownRange[1]);
                 utils.log(`Burst finished, entering cooldown ~${Math.round(cooldown / 1000)}s`);
                 await utils.sleep(cooldown);
