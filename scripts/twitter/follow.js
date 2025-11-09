@@ -222,35 +222,32 @@
         await utils.sleep(50);
         dispatch(anchor, 'mouseenter');
 
-        // Wait for popover to appear with timeout and polling
-        const popoverTimeout = 2500; // max wait time
-        const pollInterval = 300; // check every 300ms
+        // Wait for popover to appear with timeout
+        const popoverTimeout = 2000; // max wait time
         const startWait = Date.now();
         let popover = null;
 
         while (Date.now() - startWait < popoverTimeout && !popover) {
+            await utils.sleep(200);
+
             // Heuristic: find the actual popover card near the anchor
             const anchorRect = anchor.getBoundingClientRect();
 
             // First, try to find a dialog or popover by role
-            const dialogs = Array.from(document.querySelectorAll('[role="dialog"], [role="tooltip"]')).filter(el => {
+            const dialogs = Array.from(document.querySelectorAll('[role="dialog"], [role="tooltip"], [data-testid*="UserCell"]')).filter(el => {
                 try {
                     const r = el.getBoundingClientRect();
                     if (r.width === 0 && r.height === 0) return false;
-                    // Popover should be near the anchor
+                    // Popover should be near the anchor or to the right/below
                     const distanceX = Math.abs(r.left - anchorRect.right);
                     const distanceY = Math.abs(r.top - anchorRect.top);
-                    return distanceX < 400 && distanceY < 400;
+                    return distanceX < 300 && distanceY < 300;
                 } catch (e) { return false; }
             });
 
             if (dialogs.length > 0) {
                 // Pick the smallest (most specific) dialog
-                dialogs.sort((a, b) => {
-                    const aArea = a.getBoundingClientRect().width * a.getBoundingClientRect().height;
-                    const bArea = b.getBoundingClientRect().width * b.getBoundingClientRect().height;
-                    return aArea - bArea;
-                });
+                dialogs.sort((a, b) => (a.getBoundingClientRect().width * a.getBoundingClientRect().height) - (b.getBoundingClientRect().width * b.getBoundingClientRect().height));
                 popover = dialogs[0];
                 break;
             }
@@ -260,19 +257,15 @@
                 try {
                     const r = el.getBoundingClientRect();
                     if (r.width === 0 || r.height === 0) return false;
-                    if (r.width > 600 || r.height > 500) return false; // Popover should be reasonably small
+                    if (r.width > 500 || r.height > 400) return false; // Popover should be reasonably small
                     const txt = el.textContent.toLowerCase();
-                    return txt.includes('followers') && txt.includes('following');
+                    return txt.includes('followers') && (txt.includes('following') || txt.includes('follow'));
                 } catch (e) { return false; }
             });
-
             if (allElements.length > 0) {
                 popover = allElements[0];
                 break;
             }
-
-            // Wait before next poll
-            await utils.sleep(pollInterval);
         }
 
         return popover;
@@ -587,7 +580,7 @@
 
                         // simulate hover & parse with timeout protection
                         const pop = await simulateHover(anchor);
-
+                        
                         // Always unhover after processing
                         await unhover(anchor);
                         await utils.sleep(100);
@@ -623,9 +616,7 @@
                         utils.log(`Error processing ${uname}: ${e.message}`);
                         seenUsernames.add(uname); // mark as seen even on error to avoid infinite retry
                     }
-                }
-
-                // after burst, enter cooldown
+                }                // after burst, enter cooldown
                 const cooldown = utils.randomBetween(config.burstCooldownRange[0], config.burstCooldownRange[1]);
                 utils.log(`Burst finished, entering cooldown ~${Math.round(cooldown / 1000)}s`);
                 await utils.sleep(cooldown);
