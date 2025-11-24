@@ -18,7 +18,6 @@
     'use strict';
 
     const CONFIG = {
-        apiBase: 'https://www.yt-download.org/api/button/mp4/',
         feedButtonClass: 'ytdl-feed-btn',
         watchButtonClass: 'ytdl-watch-btn',
         processedAttr: 'data-ytdl-processed'
@@ -192,53 +191,49 @@
 
     // --- Download Logic ---
 
+    async function getVideoData(videoId) {
+        if (window.ytInitialPlayerResponse && 
+            window.ytInitialPlayerResponse.videoDetails && 
+            window.ytInitialPlayerResponse.videoDetails.videoId === videoId) {
+            return window.ytInitialPlayerResponse;
+        }
+
+        const response = await fetch(`https://www.youtube.com/watch?v=${videoId}`);
+        const text = await response.text();
+        const match = text.match(/var ytInitialPlayerResponse\s*=\s*({.+?});/);
+        if (match && match[1]) return JSON.parse(match[1]);
+        throw new Error("Unable to locate video data");
+    }
+
     async function fetchAndShowOptions(videoId, title) {
         showToast(`Fetching options...`);
-        
         try {
-            const response = await new Promise((resolve, reject) => {
-                GM_xmlhttpRequest({
-                    method: 'GET',
-                    url: CONFIG.apiBase + videoId,
-                    onload: resolve,
-                    onerror: reject
-                });
+            const data = await getVideoData(videoId);
+            if (!data.streamingData) throw new Error('No streaming data found');
+
+            const formats = [
+                ...(data.streamingData.formats || []),
+                ...(data.streamingData.adaptiveFormats || [])
+            ];
+
+            const links = formats.filter(f => f.url).map(f => {
+                const mime = f.mimeType ? f.mimeType.split(';')[0] : 'unknown';
+                let quality = f.qualityLabel || 'Unknown';
+                if (!f.width && f.audioQuality) quality = 'Audio Only';
+                if (f.width && !f.audioQuality) quality += ' (Video Only)';
+                
+                return {
+                    href: f.url,
+                    text: `${quality} .${mime.split('/')[1]}`,
+                    extension: mime.split('/')[1]
+                };
             });
 
-            if (response.status !== 200) throw new Error('API Error');
-
-            const htmlContent = response.responseText;
-            let links = [];
-
-            // Attempt to parse HTML safely
-            try {
-                const parser = new DOMParser();
-                const safeHtml = policy ? policy.createHTML(htmlContent) : htmlContent;
-                const doc = parser.parseFromString(safeHtml, 'text/html');
-                
-                links = Array.from(doc.querySelectorAll('a[href]'))
-                    .filter(a => a.href.includes('download'))
-                    .map(a => ({
-                        href: a.href,
-                        text: a.textContent.trim()
-                    }));
-            } catch (e) {
-                // Fallback: Regex extraction if TrustedHTML blocks DOMParser
-                console.warn('YTDL: DOMParser failed, using regex fallback');
-                const regex = /<a[^>]+href="([^"]+)"[^>]*class="[^"]*btn[^"]*"[^>]*>([\s\S]*?)<\/a>/g;
-                let match;
-                while ((match = regex.exec(htmlContent)) !== null) {
-                    links.push({
-                        href: match[1],
-                        text: match[2].replace(/<[^>]+>/g, '').trim()
-                    });
-                }
-            }
-
-            if (links.length === 0) throw new Error('No links found');
+            if (links.length === 0) throw new Error('No direct links found (likely encrypted)');
+            
+            links.sort((a, b) => a.text.localeCompare(b.text));
 
             showModal(links, title, videoId);
-
         } catch (e) {
             console.error(e);
             showToast('Error: ' + (e.message || 'Failed to get links'));
@@ -266,7 +261,7 @@
             btn.textContent = link.text;
             btn.onclick = () => {
                 overlay.remove();
-                downloadFile(link.href, title || videoId);
+                downloadFile(link.href, title || videoId, link.extension);
             };
             modal.appendChild(btn);
         });
@@ -286,11 +281,11 @@
         });
     }
 
-    function downloadFile(url, title) {
+    function downloadFile(url, title, ext = 'mp4') {
         showToast(`Starting download...`);
         GM_download({
             url: url,
-            name: `${title}.mp4`,
+            name: `${title}.${ext}`,
             saveAs: true,
             onload: () => showToast('Download finished!'),
             onerror: (e) => showToast('Download failed')
