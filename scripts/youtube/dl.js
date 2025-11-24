@@ -1,15 +1,14 @@
 // ==UserScript==
 // @name         YouTube Context Video Downloader
 // @namespace    nathfavour
-// @version      1.0.0
-// @description  Simple, robust YouTube video downloader using yt-download.org. Adds context menu and overlay button.
+// @version      2.0.0
+// @description  Adds a download button to the video metadata line (feed) and action bar (watch page).
 // @author       nath
 // @license      MIT
 // @match        https://www.youtube.com/*
 // @match        https://youtube.com/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_download
-// @grant        GM_setClipboard
 // @grant        GM_addStyle
 // @connect      www.yt-download.org
 // @run-at       document-idle
@@ -20,111 +19,93 @@
 
     const CONFIG = {
         apiBase: 'https://www.yt-download.org/api/button/mp4/',
-        buttonClass: 'ytdl-overlay-btn',
-        menuId: 'ytdl-context-menu',
+        feedButtonClass: 'ytdl-feed-btn',
+        watchButtonClass: 'ytdl-watch-btn',
         processedAttr: 'data-ytdl-processed'
     };
 
     const STYLES = `
-        .ytdl-overlay-btn {
-            position: absolute;
-            top: 5px;
-            right: 5px;
-            z-index: 9999;
-            background-color: rgba(0, 0, 0, 0.7);
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            border-radius: 4px;
-            width: 24px;
-            height: 24px;
-            display: flex;
+        /* Feed Button (Metadata style) */
+        .ytdl-feed-btn {
+            display: inline-block;
+            margin-left: 8px;
+            cursor: pointer;
+            color: var(--yt-spec-text-secondary);
+            font-family: "Roboto","Arial",sans-serif;
+            font-size: 1.2rem;
+            line-height: 1.8rem;
+            font-weight: 500;
+            text-decoration: none;
+            opacity: 0.8;
+            transition: opacity 0.2s, color 0.2s;
+        }
+        .ytdl-feed-btn:hover {
+            opacity: 1;
+            color: var(--yt-spec-text-primary);
+            text-decoration: underline;
+        }
+        .ytdl-feed-btn::before {
+            content: "•";
+            margin-right: 8px;
+            color: var(--yt-spec-text-secondary);
+        }
+
+        /* Watch Page Button (Chip style) */
+        .ytdl-watch-btn {
+            display: inline-flex;
             align-items: center;
             justify-content: center;
-            cursor: pointer;
+            background-color: rgba(255, 255, 255, 0.1);
+            color: var(--yt-spec-text-primary);
+            border-radius: 18px;
+            padding: 0 16px;
+            height: 36px;
             font-size: 14px;
-            font-weight: bold;
-            opacity: 0;
-            transition: opacity 0.2s, background-color 0.2s;
-        }
-        
-        /* Show button on hover of the thumbnail container */
-        ytd-thumbnail:hover .ytdl-overlay-btn,
-        .ytd-thumbnail:hover .ytdl-overlay-btn,
-        #thumbnail:hover .ytdl-overlay-btn {
-            opacity: 1;
-        }
-
-        .ytdl-overlay-btn:hover {
-            background-color: #cc0000;
-            border-color: #ff0000;
-        }
-
-        #${CONFIG.menuId} {
-            position: fixed;
-            background: #282828;
-            border: 1px solid #444;
-            border-radius: 8px;
-            padding: 8px 0;
-            min-width: 180px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-            z-index: 10000;
-            display: none;
-            flex-direction: column;
-            font-family: Roboto, Arial, sans-serif;
-            font-size: 14px;
-            color: #eee;
-        }
-
-        #${CONFIG.menuId}.visible {
-            display: flex;
-        }
-
-        #${CONFIG.menuId} .menu-item {
-            padding: 8px 16px;
+            font-weight: 500;
             cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
+            margin-left: 8px;
+            font-family: "Roboto","Arial",sans-serif;
+            border: none;
+            transition: background-color 0.2s;
         }
-
-        #${CONFIG.menuId} .menu-item:hover {
-            background-color: #3ea6ff;
-            color: white;
-        }
-        
-        #${CONFIG.menuId} .menu-divider {
-            height: 1px;
-            background-color: #444;
-            margin: 4px 0;
+        .ytdl-watch-btn:hover {
+            background-color: rgba(255, 255, 255, 0.2);
         }
         
+        /* Toast */
         .ytdl-toast {
             position: fixed;
-            bottom: 20px;
-            left: 20px;
-            background: #333;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
             color: white;
-            padding: 10px 20px;
-            border-radius: 4px;
+            padding: 12px 24px;
+            border-radius: 24px;
             z-index: 10001;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            font-size: 14px;
+            font-family: Roboto, Arial, sans-serif;
             animation: fadein 0.3s, fadeout 0.3s 2.7s;
+            pointer-events: none;
         }
-        
-        @keyframes fadein { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes fadeout { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(10px); } }
+        @keyframes fadein { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+        @keyframes fadeout { from { opacity: 1; transform: translate(-50%, 0); } to { opacity: 0; transform: translate(-50%, 10px); } }
     `;
 
-    // Utils
-    const log = (...args) => console.log('[YTDL]', ...args);
-    
+    // --- Utils ---
+
+    function log(...args) {
+        // console.log('[YTDL]', ...args);
+    }
+
     function getVideoId(url) {
         if (!url) return null;
         try {
-            const u = new URL(url);
+            const u = new URL(url, window.location.href);
             if (u.hostname.includes('youtu.be')) return u.pathname.slice(1);
             if (u.pathname.includes('/shorts/')) return u.pathname.split('/shorts/')[1];
-            return u.searchParams.get('v');
+            if (u.searchParams.has('v')) return u.searchParams.get('v');
+            return null;
         } catch (e) { return null; }
     }
 
@@ -136,73 +117,10 @@
         setTimeout(() => toast.remove(), 3000);
     }
 
-    // UI Components
-    function createContextMenu() {
-        let menu = document.getElementById(CONFIG.menuId);
-        if (menu) return menu;
+    // --- Download Logic ---
 
-        menu = document.createElement('div');
-        menu.id = CONFIG.menuId;
-        document.body.appendChild(menu);
-
-        // Close on click outside
-        document.addEventListener('click', (e) => {
-            if (!menu.contains(e.target)) {
-                menu.classList.remove('visible');
-            }
-        });
-        
-        // Close on scroll
-        window.addEventListener('scroll', () => menu.classList.remove('visible'), true);
-
-        return menu;
-    }
-
-    function showContextMenu(x, y, videoId, title) {
-        const menu = createContextMenu();
-        menu.innerHTML = ''; // Clear previous
-
-        const actions = [
-            { label: 'Download Video (MP4)', action: () => startDownload(videoId, title, 'video') },
-            { label: 'Download Audio', action: () => startDownload(videoId, title, 'audio') },
-            { divider: true },
-            { label: 'Copy Link', action: () => {
-                GM_setClipboard(`https://youtu.be/${videoId}`);
-                showToast('Link copied!');
-            }}
-        ];
-
-        actions.forEach(item => {
-            if (item.divider) {
-                const div = document.createElement('div');
-                div.className = 'menu-divider';
-                menu.appendChild(div);
-            } else {
-                const el = document.createElement('div');
-                el.className = 'menu-item';
-                el.textContent = item.label;
-                el.onclick = () => {
-                    item.action();
-                    menu.classList.remove('visible');
-                };
-                menu.appendChild(el);
-            }
-        });
-
-        // Position
-        menu.style.left = `${x}px`;
-        menu.style.top = `${y}px`;
-        menu.classList.add('visible');
-        
-        // Adjust if off screen
-        const rect = menu.getBoundingClientRect();
-        if (rect.right > window.innerWidth) menu.style.left = `${window.innerWidth - rect.width - 10}px`;
-        if (rect.bottom > window.innerHeight) menu.style.top = `${window.innerHeight - rect.height - 10}px`;
-    }
-
-    // Download Logic
-    async function startDownload(videoId, title, type) {
-        showToast(`Fetching ${type} links...`);
+    async function startDownload(videoId, title) {
+        showToast(`Fetching download links...`);
         
         try {
             const response = await new Promise((resolve, reject) => {
@@ -222,27 +140,15 @@
                 .filter(a => a.href.includes('download'))
                 .map(a => ({
                     href: a.href,
-                    text: a.textContent.trim(),
-                    quality: parseQuality(a.textContent)
+                    text: a.textContent.trim()
                 }));
 
             if (links.length === 0) throw new Error('No links found');
 
-            // Simple selection logic
-            let selected;
-            if (type === 'audio') {
-                // Try to find audio-only or lowest video (often used as audio source if no direct audio)
-                // Actually yt-download.org usually provides mixed mp4. 
-                // For this simple script, we'll just grab the best MP4 and let user know.
-                // Or if the site provides audio specific, we'd filter for it.
-                // The current URL is /api/button/mp4/, so it returns MP4s.
-                // We'll just pick the best quality MP4.
-                selected = links[0]; // Usually best is first
-            } else {
-                selected = links[0]; // Best quality usually first
-            }
+            // Pick the first one (usually best quality MP4)
+            const selected = links[0];
 
-            showToast(`Downloading: ${title}`);
+            showToast(`Downloading: ${title || videoId}`);
             
             GM_download({
                 url: selected.href,
@@ -254,72 +160,105 @@
 
         } catch (e) {
             console.error(e);
-            showToast('Error fetching download links');
+            showToast('Error: ' + (e.message || 'Failed to get links'));
         }
     }
 
-    function parseQuality(text) {
-        if (text.includes('1080')) return 1080;
-        if (text.includes('720')) return 720;
-        if (text.includes('480')) return 480;
-        return 0;
-    }
+    // --- Injection Logic ---
 
-    // Injection Logic
-    function processNode(node) {
-        // We are looking for thumbnail containers.
-        // Common selectors: ytd-thumbnail, a#thumbnail
+    function injectFeedButtons(node) {
+        // Target: #metadata-line inside ytd-video-meta-block
+        // This appears in Home feed, Search results, Related videos
+        const metaLines = (node.querySelectorAll ? node.querySelectorAll('#metadata-line') : []);
         
-        // If node is not an element, skip
-        if (node.nodeType !== 1) return;
-
-        // Find all potential thumbnails within the node (or if the node itself is one)
-        const thumbnails = node.querySelectorAll ? node.querySelectorAll('ytd-thumbnail, a#thumbnail') : [];
-        
-        thumbnails.forEach(thumb => {
-            if (thumb.hasAttribute(CONFIG.processedAttr)) return;
+        metaLines.forEach(line => {
+            if (line.hasAttribute(CONFIG.processedAttr)) return;
             
-            // Find the anchor tag with the href
-            const link = thumb.tagName === 'A' ? thumb : thumb.querySelector('a#thumbnail');
+            // Find the video link to get ID
+            // Usually up the tree: ytd-video-meta-block -> ytd-rich-grid-media / ytd-compact-video-renderer -> a#thumbnail
+            // Or simpler: look for the main link in the container
+            const container = line.closest('ytd-rich-item-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-video-renderer, ytd-playlist-panel-video-renderer');
+            if (!container) return;
+
+            const link = container.querySelector('a#thumbnail, a.ytd-thumbnail');
             if (!link) return;
 
-            const url = link.href;
-            const videoId = getVideoId(url);
+            const videoId = getVideoId(link.href);
             if (!videoId) return;
 
             // Mark processed
-            thumb.setAttribute(CONFIG.processedAttr, 'true');
+            line.setAttribute(CONFIG.processedAttr, 'true');
 
-            // Create Button
-            const btn = document.createElement('div');
-            btn.className = CONFIG.buttonClass;
-            btn.innerHTML = '⬇';
+            // Create "Download" text link
+            const btn = document.createElement('span');
+            btn.className = CONFIG.feedButtonClass;
+            btn.textContent = 'Download';
             btn.title = 'Download Video';
             
-            // Prevent navigation when clicking button
             btn.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 
-                // Get title - try to find it nearby
-                let title = videoId;
-                // Try to find the title element in the parent container
-                const container = thumb.closest('ytd-rich-item-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-video-renderer');
-                if (container) {
-                    const titleEl = container.querySelector('#video-title');
-                    if (titleEl) title = titleEl.textContent.trim();
-                }
-
-                showContextMenu(e.clientX, e.clientY, videoId, title);
+                // Try to get title
+                const titleEl = container.querySelector('#video-title');
+                const title = titleEl ? titleEl.textContent.trim() : videoId;
+                
+                startDownload(videoId, title);
             });
 
-            // Append to thumbnail container
-            // ytd-thumbnail usually has a child like #overlays or just append to it directly if it's relative positioned
-            if (getComputedStyle(thumb).position === 'static') {
-                thumb.style.position = 'relative';
-            }
-            thumb.appendChild(btn);
+            // Append to the metadata line
+            line.appendChild(btn);
         });
+    }
+
+    function injectWatchButton() {
+        // Target: #top-level-buttons-computed inside ytd-menu-renderer (The main action bar)
+        // This is for the main video player page
+        const actionsBar = document.querySelector('ytd-menu-renderer #top-level-buttons-computed');
+        if (!actionsBar) return;
+        
+        // Check if we already injected
+        if (actionsBar.querySelector('.' + CONFIG.watchButtonClass)) return;
+
+        // Get current video ID from URL
+        const videoId = getVideoId(window.location.href);
+        if (!videoId) return;
+
+        const btn = document.createElement('button');
+        btn.className = CONFIG.watchButtonClass;
+        btn.textContent = 'Download';
+        
+        btn.addEventListener('click', () => {
+            const title = document.title.replace(' - YouTube', '');
+            startDownload(videoId, title);
+        });
+
+        // Insert as the first item or append
+        actionsBar.insertBefore(btn, actionsBar.firstChild);
+    }
+
+    function process(mutations) {
+        // Feed injection
+        mutations.forEach(m => {
+            m.addedNodes.forEach(node => {
+                if (node.nodeType === 1) {
+                    injectFeedButtons(node);
+                    // Also check if the node itself is a target
+                    if (node.matches && node.matches('#metadata-line')) {
+                        // wrap in a dummy parent for the function
+                        const wrapper = document.createElement('div');
+                        wrapper.appendChild(node.cloneNode(true)); 
+                        // Actually, injectFeedButtons searches inside, so we can just pass document.body if needed, 
+                        // but for performance we want to be specific.
+                        // If #metadata-line is added directly, we need to handle it.
+                        // But usually it's part of a larger component.
+                    }
+                }
+            });
+        });
+        
+        // Watch page injection (simpler to just check existence periodically or on nav)
+        injectWatchButton();
     }
 
     function init() {
@@ -329,28 +268,19 @@
         document.head.appendChild(style);
 
         // Observer
-        const observer = new MutationObserver((mutations) => {
-            mutations.forEach(m => {
-                m.addedNodes.forEach(processNode);
-            });
-        });
-
+        const observer = new MutationObserver(process);
         observer.observe(document.body, { childList: true, subtree: true });
 
         // Initial pass
-        processNode(document.body);
+        injectFeedButtons(document.body);
+        injectWatchButton();
         
-        // Global context menu listener for right-click on links
-        document.addEventListener('contextmenu', (e) => {
-            const link = e.target.closest('a');
-            if (link) {
-                const videoId = getVideoId(link.href);
-                if (videoId) {
-                    e.preventDefault();
-                    const title = link.textContent.trim() || link.title || videoId;
-                    showContextMenu(e.clientX, e.clientY, videoId, title);
-                }
-            }
+        // Handle navigation events (SPA)
+        window.addEventListener('yt-navigate-finish', () => {
+            setTimeout(() => {
+                injectWatchButton();
+                injectFeedButtons(document.body);
+            }, 1000); // Slight delay for render
         });
     }
 
