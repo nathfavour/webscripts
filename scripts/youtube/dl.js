@@ -208,30 +208,43 @@
     async function fetchAndShowOptions(videoId, title) {
         showToast(`Fetching options...`);
         try {
-            const data = await getVideoData(videoId);
-            if (!data.streamingData) throw new Error('No streaming data found');
+            let links = [];
+            try {
+                const data = await getVideoData(videoId);
+                if (data.streamingData) {
+                    const formats = [
+                        ...(data.streamingData.formats || []),
+                        ...(data.streamingData.adaptiveFormats || [])
+                    ];
 
-            const formats = [
-                ...(data.streamingData.formats || []),
-                ...(data.streamingData.adaptiveFormats || [])
-            ];
+                    links = formats.filter(f => f.url).map(f => {
+                        const mime = f.mimeType ? f.mimeType.split(';')[0] : 'unknown';
+                        let quality = f.qualityLabel || 'Unknown';
+                        if (!f.width && f.audioQuality) quality = 'Audio Only';
+                        if (f.width && !f.audioQuality) quality += ' (Video Only)';
+                        
+                        return {
+                            href: f.url,
+                            text: `${quality} .${mime.split('/')[1]}`,
+                            extension: mime.split('/')[1]
+                        };
+                    });
+                }
+            } catch (e) {
+                console.warn("Could not fetch direct links:", e);
+            }
 
-            const links = formats.filter(f => f.url).map(f => {
-                const mime = f.mimeType ? f.mimeType.split(';')[0] : 'unknown';
-                let quality = f.qualityLabel || 'Unknown';
-                if (!f.width && f.audioQuality) quality = 'Audio Only';
-                if (f.width && !f.audioQuality) quality += ' (Video Only)';
-                
-                return {
-                    href: f.url,
-                    text: `${quality} .${mime.split('/')[1]}`,
-                    extension: mime.split('/')[1]
-                };
+            // Always add Record option
+            links.push({
+                href: '#',
+                text: '🔴 Record Stream (Universal - Play to Record)',
+                isRecord: true
             });
-
-            if (links.length === 0) throw new Error('No direct links found (likely encrypted)');
             
-            links.sort((a, b) => a.text.localeCompare(b.text));
+            links.sort((a, b) => {
+                if (a.isRecord) return -1; 
+                return a.text.localeCompare(b.text);
+            });
 
             showModal(links, title, videoId);
         } catch (e) {
@@ -259,9 +272,16 @@
             const btn = document.createElement('button');
             btn.className = 'ytdl-option';
             btn.textContent = link.text;
+            if (link.isRecord) {
+                btn.style.borderLeft = "4px solid #ff0000";
+            }
             btn.onclick = () => {
                 overlay.remove();
-                downloadFile(link.href, title || videoId, link.extension);
+                if (link.isRecord) {
+                    startRecording(title || videoId);
+                } else {
+                    downloadFile(link.href, title || videoId, link.extension);
+                }
             };
             modal.appendChild(btn);
         });
@@ -279,6 +299,119 @@
         overlay.addEventListener('click', (e) => {
             if (e.target === overlay) overlay.remove();
         });
+    }
+
+    // --- Recording Logic ---
+    let mediaRecorder;
+    let recordedChunks = [];
+
+    function startRecording(title) {
+        const video = document.querySelector('video');
+        if (!video) {
+            showToast('No video element found to record!');
+            return;
+        }
+
+        if (video.paused) {
+            video.play();
+        }
+
+        // Cross-browser support for captureStream
+        const stream = video.captureStream ? video.captureStream() : (video.mozCaptureStream ? video.mozCaptureStream() : null);
+        if (!stream) {
+            showToast('Browser does not support captureStream!');
+            return;
+        }
+
+        recordedChunks = [];
+        // Try to use VP9 for better quality, fallback to default
+        const options = { mimeType: 'video/webm; codecs=vp9' };
+        
+        try {
+            mediaRecorder = new MediaRecorder(stream, options);
+        } catch (e) {
+             try {
+                mediaRecorder = new MediaRecorder(stream);
+             } catch (e2) {
+                 showToast('MediaRecorder init failed');
+                 return;
+             }
+        }
+
+        mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+                recordedChunks.push(event.data);
+            }
+        };
+
+        mediaRecorder.onstop = () => {
+            const blob = new Blob(recordedChunks, {
+                type: 'video/webm'
+            });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = `${title || 'recording'}.webm`;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+            }, 100);
+            showToast('Recording saved!');
+            removeRecordingUI();
+        };
+
+        mediaRecorder.start();
+        showRecordingUI();
+        showToast('Recording started... Play the video to capture!');
+    }
+
+    function stopRecording() {
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.stop();
+        }
+    }
+    
+    function showRecordingUI() {
+        const div = document.createElement('div');
+        div.id = 'ytdl-recording-ui';
+        div.style.cssText = `
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            z-index: 99999;
+            background: rgba(204, 0, 0, 0.9);
+            padding: 12px 24px;
+            border-radius: 8px;
+            color: white;
+            font-family: Roboto, Arial, sans-serif;
+            cursor: pointer;
+            font-weight: bold;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            animation: pulse 2s infinite;
+        `;
+        div.innerHTML = '<span>⏺ Recording...</span> <span style="background:white;color:#cc0000;padding:2px 8px;border-radius:4px;font-size:12px;margin-left:8px;">STOP & SAVE</span>';
+        div.onclick = stopRecording;
+        
+        // Add pulse animation
+        const style = document.createElement('style');
+        style.id = 'ytdl-rec-style';
+        style.textContent = `@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(204, 0, 0, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(204, 0, 0, 0); } 100% { box-shadow: 0 0 0 0 rgba(204, 0, 0, 0); } }`;
+        document.head.appendChild(style);
+        
+        document.body.appendChild(div);
+    }
+
+    function removeRecordingUI() {
+        const div = document.getElementById('ytdl-recording-ui');
+        if (div) div.remove();
+        const style = document.getElementById('ytdl-rec-style');
+        if (style) style.remove();
     }
 
     function downloadFile(url, title, ext = 'mp4') {
