@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         YouTube Context Video Downloader
 // @namespace    nathfavour
-// @version      2.0.0
-// @description  Adds a download button to the video metadata line (feed) and action bar (watch page).
+// @version      2.1.0
+// @description  Adds a download button to the video metadata line (feed) and action bar (watch page) with a quality selection overlay.
 // @author       nath
 // @license      MIT
 // @match        https://www.youtube.com/*
@@ -90,12 +90,85 @@
         }
         @keyframes fadein { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
         @keyframes fadeout { from { opacity: 1; transform: translate(-50%, 0); } to { opacity: 0; transform: translate(-50%, 10px); } }
+
+        /* Modal Overlay */
+        .ytdl-modal-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6);
+            z-index: 10002;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: Roboto, Arial, sans-serif;
+        }
+        .ytdl-modal {
+            background: #212121;
+            color: #fff;
+            padding: 20px;
+            border-radius: 12px;
+            width: 320px;
+            max-width: 90%;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            border: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .ytdl-modal h3 {
+            margin: 0 0 8px 0;
+            font-size: 18px;
+            font-weight: 500;
+            border-bottom: 1px solid #333;
+            padding-bottom: 12px;
+        }
+        .ytdl-option {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            padding: 12px;
+            background: #333;
+            border: none;
+            border-radius: 6px;
+            color: #fff;
+            text-align: left;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+        .ytdl-option:hover {
+            background: #444;
+        }
+        .ytdl-close {
+            margin-top: 8px;
+            background: transparent;
+            border: 1px solid #555;
+            color: #aaa;
+            width: 100%;
+            padding: 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .ytdl-close:hover {
+            background: #333;
+            color: #fff;
+        }
     `;
 
     // --- Utils ---
 
-    function log(...args) {
-        // console.log('[YTDL]', ...args);
+    // Trusted Types Policy Creation
+    let policy = null;
+    if (window.trustedTypes && window.trustedTypes.createPolicy) {
+        try {
+            policy = window.trustedTypes.createPolicy('ytdl_policy', {
+                createHTML: (string) => string
+            });
+        } catch (e) {
+            // Policy might already exist or be blocked
+        }
     }
 
     function getVideoId(url) {
@@ -119,8 +192,8 @@
 
     // --- Download Logic ---
 
-    async function startDownload(videoId, title) {
-        showToast(`Fetching download links...`);
+    async function fetchAndShowOptions(videoId, title) {
+        showToast(`Fetching options...`);
         
         try {
             const response = await new Promise((resolve, reject) => {
@@ -134,29 +207,37 @@
 
             if (response.status !== 200) throw new Error('API Error');
 
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(response.responseText, 'text/html');
-            const links = Array.from(doc.querySelectorAll('a[href]'))
-                .filter(a => a.href.includes('download'))
-                .map(a => ({
-                    href: a.href,
-                    text: a.textContent.trim()
-                }));
+            const htmlContent = response.responseText;
+            let links = [];
+
+            // Attempt to parse HTML safely
+            try {
+                const parser = new DOMParser();
+                const safeHtml = policy ? policy.createHTML(htmlContent) : htmlContent;
+                const doc = parser.parseFromString(safeHtml, 'text/html');
+                
+                links = Array.from(doc.querySelectorAll('a[href]'))
+                    .filter(a => a.href.includes('download'))
+                    .map(a => ({
+                        href: a.href,
+                        text: a.textContent.trim()
+                    }));
+            } catch (e) {
+                // Fallback: Regex extraction if TrustedHTML blocks DOMParser
+                console.warn('YTDL: DOMParser failed, using regex fallback');
+                const regex = /<a[^>]+href="([^"]+)"[^>]*class="[^"]*btn[^"]*"[^>]*>([\s\S]*?)<\/a>/g;
+                let match;
+                while ((match = regex.exec(htmlContent)) !== null) {
+                    links.push({
+                        href: match[1],
+                        text: match[2].replace(/<[^>]+>/g, '').trim()
+                    });
+                }
+            }
 
             if (links.length === 0) throw new Error('No links found');
 
-            // Pick the first one (usually best quality MP4)
-            const selected = links[0];
-
-            showToast(`Downloading: ${title || videoId}`);
-            
-            GM_download({
-                url: selected.href,
-                name: `${title || videoId}.mp4`,
-                saveAs: true,
-                onload: () => showToast('Download finished!'),
-                onerror: (e) => showToast('Download failed')
-            });
+            showModal(links, title, videoId);
 
         } catch (e) {
             console.error(e);
@@ -164,19 +245,67 @@
         }
     }
 
+    function showModal(links, title, videoId) {
+        // Remove existing
+        const existing = document.querySelector('.ytdl-modal-overlay');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.className = 'ytdl-modal-overlay';
+        
+        const modal = document.createElement('div');
+        modal.className = 'ytdl-modal';
+        
+        const header = document.createElement('h3');
+        header.textContent = 'Download Options';
+        modal.appendChild(header);
+
+        links.forEach(link => {
+            const btn = document.createElement('button');
+            btn.className = 'ytdl-option';
+            btn.textContent = link.text;
+            btn.onclick = () => {
+                overlay.remove();
+                downloadFile(link.href, title || videoId);
+            };
+            modal.appendChild(btn);
+        });
+
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'ytdl-close';
+        closeBtn.textContent = 'Cancel';
+        closeBtn.onclick = () => overlay.remove();
+        modal.appendChild(closeBtn);
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        
+        // Close on background click
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) overlay.remove();
+        });
+    }
+
+    function downloadFile(url, title) {
+        showToast(`Starting download...`);
+        GM_download({
+            url: url,
+            name: `${title}.mp4`,
+            saveAs: true,
+            onload: () => showToast('Download finished!'),
+            onerror: (e) => showToast('Download failed')
+        });
+    }
+
     // --- Injection Logic ---
 
     function injectFeedButtons(node) {
         // Target: #metadata-line inside ytd-video-meta-block
-        // This appears in Home feed, Search results, Related videos
         const metaLines = (node.querySelectorAll ? node.querySelectorAll('#metadata-line') : []);
         
         metaLines.forEach(line => {
             if (line.hasAttribute(CONFIG.processedAttr)) return;
             
-            // Find the video link to get ID
-            // Usually up the tree: ytd-video-meta-block -> ytd-rich-grid-media / ytd-compact-video-renderer -> a#thumbnail
-            // Or simpler: look for the main link in the container
             const container = line.closest('ytd-rich-item-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-video-renderer, ytd-playlist-panel-video-renderer');
             if (!container) return;
 
@@ -186,10 +315,8 @@
             const videoId = getVideoId(link.href);
             if (!videoId) return;
 
-            // Mark processed
             line.setAttribute(CONFIG.processedAttr, 'true');
 
-            // Create "Download" text link
             const btn = document.createElement('span');
             btn.className = CONFIG.feedButtonClass;
             btn.textContent = 'Download';
@@ -199,28 +326,22 @@
                 e.preventDefault();
                 e.stopPropagation();
                 
-                // Try to get title
                 const titleEl = container.querySelector('#video-title');
                 const title = titleEl ? titleEl.textContent.trim() : videoId;
                 
-                startDownload(videoId, title);
+                fetchAndShowOptions(videoId, title);
             });
 
-            // Append to the metadata line
             line.appendChild(btn);
         });
     }
 
     function injectWatchButton() {
-        // Target: #top-level-buttons-computed inside ytd-menu-renderer (The main action bar)
-        // This is for the main video player page
         const actionsBar = document.querySelector('ytd-menu-renderer #top-level-buttons-computed');
         if (!actionsBar) return;
         
-        // Check if we already injected
         if (actionsBar.querySelector('.' + CONFIG.watchButtonClass)) return;
 
-        // Get current video ID from URL
         const videoId = getVideoId(window.location.href);
         if (!videoId) return;
 
@@ -230,57 +351,39 @@
         
         btn.addEventListener('click', () => {
             const title = document.title.replace(' - YouTube', '');
-            startDownload(videoId, title);
+            fetchAndShowOptions(videoId, title);
         });
 
-        // Insert as the first item or append
         actionsBar.insertBefore(btn, actionsBar.firstChild);
     }
 
     function process(mutations) {
-        // Feed injection
         mutations.forEach(m => {
             m.addedNodes.forEach(node => {
                 if (node.nodeType === 1) {
                     injectFeedButtons(node);
-                    // Also check if the node itself is a target
-                    if (node.matches && node.matches('#metadata-line')) {
-                        // wrap in a dummy parent for the function
-                        const wrapper = document.createElement('div');
-                        wrapper.appendChild(node.cloneNode(true)); 
-                        // Actually, injectFeedButtons searches inside, so we can just pass document.body if needed, 
-                        // but for performance we want to be specific.
-                        // If #metadata-line is added directly, we need to handle it.
-                        // But usually it's part of a larger component.
-                    }
                 }
             });
         });
-        
-        // Watch page injection (simpler to just check existence periodically or on nav)
         injectWatchButton();
     }
 
     function init() {
-        // Add Styles
         const style = document.createElement('style');
         style.textContent = STYLES;
         document.head.appendChild(style);
 
-        // Observer
         const observer = new MutationObserver(process);
         observer.observe(document.body, { childList: true, subtree: true });
 
-        // Initial pass
         injectFeedButtons(document.body);
         injectWatchButton();
         
-        // Handle navigation events (SPA)
         window.addEventListener('yt-navigate-finish', () => {
             setTimeout(() => {
                 injectWatchButton();
                 injectFeedButtons(document.body);
-            }, 1000); // Slight delay for render
+            }, 1000);
         });
     }
 
