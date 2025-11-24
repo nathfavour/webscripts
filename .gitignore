@@ -6,3 +6,4 @@ startup/
 *.env*
 # Added by Autocommiter: ensure .env*
 .env*
+.ignore/
