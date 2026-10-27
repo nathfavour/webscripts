@@ -1,3 +1,4 @@
+import argparse
 import os
 import re
 import webbrowser
@@ -40,11 +41,26 @@ def get_all_links(files, schemes):
             print(f"Error reading {file}: {e}")
     return links
 
-def main():
-    cwd = os.getcwd()
-    print(f"Scanning directory: {cwd}")
-    files = list(find_files(cwd, ALLOWED_EXTENSIONS))
-    print(f"Found {len(files)} files with allowed extensions.")
+def parse_args(args=None):
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Extract and open links from file(s) or directory.")
+    parser.add_argument(
+        'files',
+        nargs='*',
+        help="Path to specific file(s) to process. If none specified, recursively scans current directory."
+    )
+    return parser.parse_args(args)
+
+def main(args=None):
+    parsed_args = parse_args(args)
+    if parsed_args.files:
+        files = parsed_args.files
+        print(f"Processing specified file(s): {', '.join(files)}")
+    else:
+        cwd = os.getcwd()
+        print(f"Scanning directory: {cwd}")
+        files = list(find_files(cwd, ALLOWED_EXTENSIONS))
+        print(f"Found {len(files)} files with allowed extensions.")
 
     links = get_all_links(files, ALLOWED_SCHEMES)
     unique_links = list(dict.fromkeys(links))  # Remove duplicates, preserve order
